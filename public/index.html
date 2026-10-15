@@ -1045,6 +1045,32 @@ function renderProduct(slug){
             <button class="thumb" data-look="5">Back</button>
           </div>
           <p class="image-note">Illustrative product preview — final print may vary</p>
+
+          <div class="detail-tabs">
+            <a class="tab-active" href="#description-${esc(slug)}">Description</a>
+            <a href="#specifications-${esc(slug)}">Specifications</a>
+            <a href="#artwork-${esc(slug)}">Artwork Guidelines</a>
+            <a href="#delivery-${esc(slug)}">Delivery &amp; Returns</a>
+          </div>
+          <div class="description-panel" id="description-${esc(slug)}">
+            <p>Our ${esc(p.name.toLowerCase())} are printed using high-quality paper and advanced printing technology to ensure sharp details and a professional finish. Perfect for businesses, freelancers and events.</p>
+            <ul class="check-grid">
+              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>High-quality printing</li>
+              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Ideal for business branding</li>
+              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Multiple paper types and finishes</li>
+              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Fast production and delivery</li>
+              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Custom sizes available</li>
+              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Option for professional design support</li>
+            </ul>
+          </div>
+          <div class="specs" id="specifications-${esc(slug)}">
+            <h2>Specifications</h2>
+            <p><b>Category:</b> ${esc(p.cat)}${p.subcat && p.subcat!==p.cat ? ' / '+esc(p.subcat) : ''}</p>
+            <p><b>Available sizes:</b> ${sizes.map(esc).join(', ')}</p>
+            <p><b>Quantity range:</b> ${esc(p.qtyRange||'varies by option')}</p>
+            <p id="artwork-${esc(slug)}"><b>Artwork:</b> Upload-ready PDF recommended, CMYK color mode, 3mm bleed on edge-to-edge designs.</p>
+            <p id="delivery-${esc(slug)}"><b>Delivery &amp; Returns:</b> Dispatched within 3 business days, pan-India delivery. Issues with print quality are resolved free of charge.</p>
+          </div>
         </div>
         <div class="product-info">
           <h1>${esc(p.name)}</h1>
@@ -1086,34 +1112,6 @@ function renderProduct(slug){
             <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></i><span><b>Fast<br>Turnaround</b></span></div>
             <div><i>${USP_ICONS.moq}</i><span><b>Bulk Orders &amp;<br>Business Support</b></span></div>
           </div>
-        </div>
-      </section>
-
-      <section class="details-section">
-        <div class="detail-tabs">
-          <a class="tab-active" href="#description-${esc(slug)}">Description</a>
-          <a href="#specifications-${esc(slug)}">Specifications</a>
-          <a href="#artwork-${esc(slug)}">Artwork Guidelines</a>
-          <a href="#delivery-${esc(slug)}">Delivery &amp; Returns</a>
-        </div>
-        <div class="description-panel" id="description-${esc(slug)}">
-          <p>Our ${esc(p.name.toLowerCase())} are printed using high-quality paper and advanced printing technology to ensure sharp details and a professional finish. Perfect for businesses, freelancers and events.</p>
-          <ul class="check-grid">
-            <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>High-quality printing</li>
-            <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Ideal for business branding</li>
-            <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Multiple paper types and finishes</li>
-            <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Fast production and delivery</li>
-            <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Custom sizes available</li>
-            <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Option for professional design support</li>
-          </ul>
-        </div>
-        <div class="specs" id="specifications-${esc(slug)}">
-          <h2>Specifications</h2>
-          <p><b>Category:</b> ${esc(p.cat)}${p.subcat && p.subcat!==p.cat ? ' / '+esc(p.subcat) : ''}</p>
-          <p><b>Available sizes:</b> ${sizes.map(esc).join(', ')}</p>
-          <p><b>Quantity range:</b> ${esc(p.qtyRange||'varies by option')}</p>
-          <p id="artwork-${esc(slug)}"><b>Artwork:</b> Upload-ready PDF recommended, CMYK color mode, 3mm bleed on edge-to-edge designs.</p>
-          <p id="delivery-${esc(slug)}"><b>Delivery &amp; Returns:</b> Dispatched within 3 business days, pan-India delivery. Issues with print quality are resolved free of charge.</p>
         </div>
       </section>
     </main>
