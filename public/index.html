@@ -1051,7 +1051,7 @@ function renderProduct(slug){
           <p class="product-intro">${esc(p.name)} — printed to order with live, quantity-based pricing. Choose your size, options and quantity to get an instant price.</p>
 
           <div class="summary-panel">
-            <div class="option-group"><label>Size <span class="info-dot">i</span></label><div class="swatch-row" id="sizeSwatches"></div></div>
+            <div class="option-group"><label>Size <span class="info-dot">i</span></label><select id="sizeSwatches"></select></div>
             <div class="option-group"><label>Options <span class="info-dot">i</span></label><div class="swatch-row" id="optPills"></div></div>
             <div class="option-group"><label>Quantity <span class="info-dot">i</span></label><select id="qtySel"></select></div>
 
@@ -1141,17 +1141,15 @@ const USP_ICONS = {
   moq: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>'
 };
 
-function currentSize(){ return document.querySelector('#sizeSwatches .swatch-card.selected')?.dataset.size; }
+function currentSize(){ return document.getElementById('sizeSwatches')?.value; }
 function currentOpt(){ return document.querySelector('#optPills .swatch-card.selected')?.dataset.opt; }
 
 function populateSizes(slug){
   const p = DATA[slug];
   const sizes = Object.keys(p.sizes);
-  const box = document.getElementById('sizeSwatches');
-  box.innerHTML = sizes.map((s,i) => `<button type="button" class="swatch-card${i===0?' selected':''}" data-size="${esc(s)}"><span class="swatch-thumb"></span><span><b>${esc(s)}</b></span></button>`).join('');
-  box.querySelectorAll('.swatch-card').forEach(btn => {
-    btn.onclick = () => { box.querySelectorAll('.swatch-card').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); populateOptionsForSize(slug); };
-  });
+  const sel = document.getElementById('sizeSwatches');
+  sel.innerHTML = sizes.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  sel.onchange = () => populateOptionsForSize(slug);
   populateOptionsForSize(slug);
 }
 
