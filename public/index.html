@@ -331,6 +331,7 @@ table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:mi
   <div class="copyright"><div class="wrap">© 2026 Print Haus. <span>Privacy Policy　 Terms of Service</span></div></div>
 </footer>
 
+<script src="erpnext-client.js"></script>
 <script>
 let DATA = null;
 let CATS = [];
@@ -766,7 +767,7 @@ function renderQuote(productSlug){
       </form>
     </div>
   </div>`;
-  document.getElementById('quoteForm').addEventListener('submit', (e) => {
+  document.getElementById('quoteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const quotes = getQuotes();
     const q = {
@@ -781,6 +782,12 @@ function renderQuote(productSlug){
       product: product ? product.name : null,
       createdAt: new Date().toISOString()
     };
+    // Try ERPNext first (if configured via PFErp.configure in this browser);
+    // always save locally too so the Admin dashboard's quote list stays complete.
+    if (window.PFErp) {
+      const result = await window.PFErp.trySubmitQuote(q);
+      if (result.ok) q.erpQuotation = result.erpName;
+    }
     quotes.push(q); saveQuotes(quotes);
     notify('Quote request sent. We\'ll be in touch soon!');
     location.hash = 'home';
@@ -817,7 +824,7 @@ function renderCheckout(){
       </div>
     </div>
   </div>`;
-  document.getElementById('checkoutForm').addEventListener('submit', (e) => {
+  document.getElementById('checkoutForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const orders = getOrders();
     const order = {
@@ -832,6 +839,12 @@ function renderCheckout(){
       status: 'Received',
       createdAt: new Date().toISOString()
     };
+    // Try creating a real ERPNext Sales Order (if configured); the local
+    // order record is always saved too, so Account > Orders always shows it.
+    if (window.PFErp) {
+      const result = await window.PFErp.trySubmitOrder(order, cart);
+      if (result.ok) order.erpSalesOrder = result.erpName;
+    }
     orders.push(order); saveOrders(orders);
     lsSet('pf_cart', []); updateBadges();
     notify('Demo order placed: ' + order.id);
