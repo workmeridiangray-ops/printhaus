@@ -1,35 +1,54 @@
 # Print Haus
 
-Live printing-business storefront: product catalog, live price calculator, cart, wishlist, accounts, checkout, quote requests, and an admin dashboard — all client-side (localStorage-based prototype, no real backend/payments yet).
+Printing-business storefront: product catalog, live price calculator, cart, wishlist, accounts, checkout, quote requests, and an admin dashboard. Accounts, orders, and quotes are backed by a real **Cloudflare D1** database via a **Cloudflare Worker** API — cart/wishlist stay in the browser (localStorage) as pre-checkout scratch state, which is normal for any storefront.
 
 ## Structure
 
-- `public/index.html` — the entire single-page app (routing, UI, cart/order/quote logic)
+- `public/index.html` — the single-page app (routing, UI, cart/catalog logic; calls the API below for accounts/orders/quotes)
+- `public/pf-api.js` — browser-side client for the Worker API (signup/login, orders, quotes, admin)
+- `public/erpnext-client.js` — optional ERPNext integration (see its own section below); inactive unless configured
 - `public/calc-data.json` — the pricing dataset (225 products, sizes/options/quantity-tier pricing)
-- `wrangler.toml` — Cloudflare Workers static-assets config
+- `src/worker.js` — the Cloudflare Worker: serves `/api/*` routes against D1, and falls through to the static assets binding for everything else
+- `schema.sql` — D1 table definitions (users, sessions, orders, order_items, quotes)
+- `wrangler.toml` — Worker + D1 binding + static-assets config
 
-## Deploy (Cloudflare Workers static assets)
+## Deploy
 
-This repo is set up to deploy as a Cloudflare Worker serving static assets.
+The D1 database (`printhaus`, id `a6ce98e0-f17d-4d52-b2e3-9d39e21a9f8a`) and its schema have already been created directly against your Cloudflare account, and `wrangler.toml` is already wired to it — you only need to deploy the Worker:
 
 ```bash
 npm install -g wrangler
-wrangler login          # authenticate with your Cloudflare account
-wrangler deploy         # deploys public/ as a static Worker
+wrangler login                               # authenticate with your Cloudflare account
+wrangler secret put ADMIN_KEY                # set the admin dashboard key (pick your own value)
+wrangler deploy                              # deploys the Worker + static assets together
 ```
 
-That's it — no build step. `wrangler.toml` points `[assets].directory` at `public/`.
+If you ever need to (re)create the schema on a *different* D1 database:
+```bash
+wrangler d1 execute printhaus --remote --file=./schema.sql
+```
 
 ## Local preview
 
 ```bash
 npx wrangler dev
 ```
+Note: local preview uses a local D1 emulation, separate from the remote database — run `wrangler dev --remote` to hit the real production database while testing locally.
+
+## How accounts/orders/quotes work now
+
+- **Sign up / Login** (`#account`) → `POST /api/signup` / `/api/login` → creates a row in `users`, a session token in `sessions`, returned to the browser and kept in `localStorage` (`pf_token`) — same place the old prototype kept its session, just holding a token instead of the whole user object.
+- **Checkout** (`#checkout`) → `POST /api/orders` (needs the session token) → writes to `orders` + `order_items`.
+- **My Orders** (`#orders`) → `GET /api/orders` → only returns the signed-in user's own orders.
+- **Quote requests** (`#quote`) → `POST /api/quotes` → writes to `quotes`. No login required, same as before.
+- **Admin dashboard** (`#admin`) → protected by the `ADMIN_KEY` secret (sent as the `X-Admin-Key` header) instead of the old hardcoded `PrintAdmin123!` client-side password. Set it with `wrangler secret put ADMIN_KEY` before deploying, then use that value to log into `/admin-login`.
+
+Passwords are hashed (PBKDF2-SHA256, Web Crypto) before being stored — never kept in plain text.
 
 ## Notes
 
-- This is a prototype: accounts, cart, orders and the admin dashboard are all stored in the visitor's browser (`localStorage`) — nothing is sent to a real server. See inline comments in `index.html` for what still needs a real backend before launch (payments, auth, admin security, etc).
-- Admin dashboard demo password: `PrintAdmin123!` — change or remove before any real use.
+- Cart and wishlist intentionally stay in the browser's `localStorage` — that's normal for any storefront (no reason to round-trip a shopping cart to the server before checkout).
+- No payment gateway is integrated yet — checkout records the order but doesn't charge anything.
 
 ## ERPNext integration (`public/erpnext-client.js`)
 

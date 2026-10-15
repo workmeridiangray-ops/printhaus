@@ -331,6 +331,7 @@ table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:mi
   <div class="copyright"><div class="wrap">© 2026 Print Haus. <span>Privacy Policy　 Terms of Service</span></div></div>
 </footer>
 
+<script src="pf-api.js"></script>
 <script src="erpnext-client.js"></script>
 <script>
 let DATA = null;
@@ -365,12 +366,11 @@ function updateBadges(){
 }
 
 /* ---------- Account / orders / admin (prototype only: localStorage, client-side password check — no real backend) ---------- */
-function getUsers(){ return lsGet('pf_users', []); }
-function saveUsers(u){ lsSet('pf_users', u); }
-function getSession(){ return lsGet('pf_session', null); }
-function setSession(u){ lsSet('pf_session', u); }
-function getOrders(){ return lsGet('pf_orders', []); }
-function saveOrders(o){ lsSet('pf_orders', o); }
+// Accounts/orders now live in Cloudflare D1 via the Worker API (see pf-api.js).
+// getSession() stays synchronous (reads a small cached {name,email} that
+// pf-api.js keeps in localStorage) so existing render-function call sites
+// don't need to become async just to check "is anyone logged in".
+function getSession(){ return window.PFApi ? window.PFApi.getSession() : null; }
 let adminUnlocked = false;
 
 function notify(msg){
@@ -656,7 +656,7 @@ function renderAccount(){
       <a class="button" style="width:100%;border-radius:8px;justify-content:center;" href="#orders" data-link>View My Orders</a>
       <button class="button button-outline" id="logoutBtn" style="width:100%;margin-top:10px;border-radius:8px;justify-content:center;">Log out</button>
     </div></div>`;
-    document.getElementById('logoutBtn').addEventListener('click', () => { setSession(null); syncAccountIcon(); notify('You have logged out.'); location.hash = 'home'; });
+    document.getElementById('logoutBtn').addEventListener('click', async () => { await window.PFApi.logout(); syncAccountIcon(); notify('You have logged out.'); location.hash = 'home'; });
     bindLinks();
     return;
   }
@@ -684,42 +684,48 @@ function renderAccount(){
   }
   document.getElementById('loginTab').addEventListener('click', () => setMode('login'));
   document.getElementById('signupTab').addEventListener('click', () => setMode('signup'));
-  document.getElementById('authForm').addEventListener('submit', (e) => {
+  document.getElementById('authForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('authEmail').value.trim().toLowerCase();
     const password = document.getElementById('authPassword').value;
-    let users = getUsers();
-    if (mode === 'signup'){
-      if (users.some(u => u.email === email)){ notify('An account with this email already exists.'); return; }
-      const user = { name: document.getElementById('authName').value.trim() || email.split('@')[0], email, password };
-      users.push(user); saveUsers(users);
-      setSession({ name: user.name, email: user.email });
-      notify('Account created in this browser.');
-      syncAccountIcon();
-      location.hash = 'shop';
-    } else {
-      const user = users.find(u => u.email === email && u.password === password);
-      if (!user){ notify('Email or password not found. Create a demo account first.'); return; }
-      setSession({ name: user.name, email: user.email });
-      notify('Welcome back, ' + user.name + '!');
-      syncAccountIcon();
-      location.hash = 'orders';
+    const submitBtn = document.getElementById('authSubmit');
+    submitBtn.disabled = true;
+    try {
+      if (mode === 'signup'){
+        const name = document.getElementById('authName').value.trim() || email.split('@')[0];
+        const user = await window.PFApi.signup(name, email, password);
+        notify('Account created, ' + user.name + '!');
+        syncAccountIcon();
+        location.hash = 'shop';
+      } else {
+        const user = await window.PFApi.login(email, password);
+        notify('Welcome back, ' + user.name + '!');
+        syncAccountIcon();
+        location.hash = 'orders';
+      }
+    } catch (err) {
+      notify(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      submitBtn.disabled = false;
     }
   });
   bindLinks();
 }
 
 /* ---------- My Orders ---------- */
-function renderOrders(){
+async function renderOrders(){
   const view = document.getElementById('view');
   const session = getSession();
   if (!session){
     view.innerHTML = `<div class="wrap simple-page"><h1>My Orders</h1>
-      <div class="empty-state"><p>Login to view orders. Your order history is associated with your demo account.</p>
+      <div class="empty-state"><p>Login to view orders. Your order history is associated with your account.</p>
         <a class="button button-small" href="#account" data-link>Login / Sign up</a></div></div>`;
     bindLinks(); return;
   }
-  const orders = getOrders().filter(o => o.email === session.email);
+  view.innerHTML = `<div class="wrap simple-page"><h1>My Orders</h1><p class="auth-note">Loading your orders…</p></div>`;
+  let orders = [];
+  try { orders = await window.PFApi.fetchOrders(); }
+  catch (e) { view.innerHTML = `<div class="wrap simple-page"><h1>My Orders</h1><p class="auth-note">Couldn't load orders: ${esc(e.message)}</p></div>`; bindLinks(); return; }
   view.innerHTML = `<div class="wrap simple-page"><h1>My Orders</h1>
     ${orders.length ? orders.slice().reverse().map(o => `
       <div class="order-card">
@@ -728,16 +734,13 @@ function renderOrders(){
         <p>${o.items.map(i => esc(i.name) + ' × ' + i.qty).join(', ')}</p>
         <span class="ototal">₹${o.total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
       </div>`).join('') :
-      `<div class="empty-state"><p>No orders yet. Your placed demo orders will appear here.</p><a class="button button-small" href="#shop" data-link>Start Shopping</a></div>`}
+      `<div class="empty-state"><p>No orders yet. Your placed orders will appear here.</p><a class="button button-small" href="#shop" data-link>Start Shopping</a></div>`}
   </div>`;
   bindLinks();
 }
 
 /* ---------- Checkout ---------- */
 /* ---------- Quote request (fields match Kraftix's contact/quote form) ---------- */
-function getQuotes(){ return lsGet('pf_quotes', []); }
-function saveQuotes(q){ lsSet('pf_quotes', q); }
-
 function renderQuote(productSlug){
   const view = document.getElementById('view');
   const product = productSlug && DATA[productSlug] ? DATA[productSlug] : null;
@@ -769,9 +772,8 @@ function renderQuote(productSlug){
   </div>`;
   document.getElementById('quoteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const quotes = getQuotes();
+    const submitBtn = e.target.querySelector('button[type="submit"]');
     const q = {
-      id: 'Q-' + Date.now().toString().slice(-8),
       company: document.getElementById('qCompany').value,
       name: document.getElementById('qName').value,
       email: document.getElementById('qEmail').value,
@@ -779,18 +781,20 @@ function renderQuote(productSlug){
       department: document.getElementById('qDept').value,
       orderNumber: document.getElementById('qOrder').value,
       message: document.getElementById('qMessage').value,
-      product: product ? product.name : null,
-      createdAt: new Date().toISOString()
+      product: product ? product.name : null
     };
-    // Try ERPNext first (if configured via PFErp.configure in this browser);
-    // always save locally too so the Admin dashboard's quote list stays complete.
-    if (window.PFErp) {
-      const result = await window.PFErp.trySubmitQuote(q);
-      if (result.ok) q.erpQuotation = result.erpName;
+    submitBtn.disabled = true;
+    try {
+      await window.PFApi.submitQuote(q);
+      // Also try ERPNext, if this browser has been configured with
+      // PFErp.configure(...) — optional, see erpnext-client.js.
+      if (window.PFErp) window.PFErp.trySubmitQuote(q).catch(() => {});
+      notify('Quote request sent. We\'ll be in touch soon!');
+      location.hash = 'home';
+    } catch (err) {
+      notify('Couldn\'t send your request: ' + (err.message || 'please try again.'));
+      submitBtn.disabled = false;
     }
-    quotes.push(q); saveQuotes(quotes);
-    notify('Quote request sent. We\'ll be in touch soon!');
-    location.hash = 'home';
   });
   bindLinks();
 }
@@ -812,8 +816,8 @@ function renderCheckout(){
         <label>Phone number<input id="shipPhone" required type="tel" placeholder="+91 ..."></label>
         <label>Delivery address<textarea id="shipAddress" required rows="3" placeholder="Street, area, city, PIN code"></textarea></label>
         <label>Order notes (optional)<textarea id="orderNote" rows="2"></textarea></label>
-        <button class="button" style="width:100%;margin-top:18px;border-radius:8px;justify-content:center;" type="submit">Place Demo Order</button>
-        <p class="auth-note">No payment is processed. This only saves a local demo order.</p>
+        <button class="button" style="width:100%;margin-top:18px;border-radius:8px;justify-content:center;" type="submit">Place Order</button>
+        <p class="auth-note">No payment is processed yet — this records the order for fulfillment.</p>
       </form>
       <div class="panel">
         <h3>Order summary</h3>
@@ -826,29 +830,30 @@ function renderCheckout(){
   </div>`;
   document.getElementById('checkoutForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const orders = getOrders();
+    const submitBtn = e.target.querySelector('button[type="submit"]');
     const order = {
-      id: 'PF-' + Date.now().toString().slice(-8),
-      email: session.email,
       customer: document.getElementById('shipName').value,
       phone: document.getElementById('shipPhone').value,
       address: document.getElementById('shipAddress').value,
       note: document.getElementById('orderNote').value,
       items: cart,
-      total: total,
-      status: 'Received',
-      createdAt: new Date().toISOString()
+      subtotal: subtotal,
+      gst: gst,
+      total: total
     };
-    // Try creating a real ERPNext Sales Order (if configured); the local
-    // order record is always saved too, so Account > Orders always shows it.
-    if (window.PFErp) {
-      const result = await window.PFErp.trySubmitOrder(order, cart);
-      if (result.ok) order.erpSalesOrder = result.erpName;
+    submitBtn.disabled = true;
+    try {
+      const res = await window.PFApi.placeOrder(order);
+      // Also try creating a real ERPNext Sales Order, if this browser has
+      // been configured with PFErp.configure(...) — optional, see erpnext-client.js.
+      if (window.PFErp) window.PFErp.trySubmitOrder({ ...order, email: session.email }, cart).catch(() => {});
+      lsSet('pf_cart', []); updateBadges();
+      notify('Order placed: ' + res.order.id);
+      location.hash = 'orders';
+    } catch (err) {
+      notify('Couldn\'t place order: ' + (err.message || 'please try again.'));
+      submitBtn.disabled = false;
     }
-    orders.push(order); saveOrders(orders);
-    lsSet('pf_cart', []); updateBadges();
-    notify('Demo order placed: ' + order.id);
-    location.hash = 'orders';
   });
   bindLinks();
 }
@@ -858,62 +863,88 @@ function renderAdminLogin(){
   if (adminUnlocked){ location.hash = 'admin'; return; }
   const view = document.getElementById('view');
   view.innerHTML = `<div class="wrap auth-wrap"><div class="auth-card">
-    <span class="eyebrow">STORE MANAGEMENT</span><h1>Admin Login</h1><p class="sub">Demo admin access for previewing the dashboard.</p>
+    <span class="eyebrow">STORE MANAGEMENT</span><h1>Admin Login</h1><p class="sub">Enter the admin key to open the dashboard.</p>
     <form id="adminLoginForm">
-      <label>Admin password<input id="adminPassword" type="password" required placeholder="Enter demo password"></label>
+      <label>Admin key<input id="adminPassword" type="password" required placeholder="Enter admin key"></label>
       <button class="button" style="width:100%;margin-top:18px;border-radius:8px;justify-content:center;" type="submit">Open Dashboard</button>
     </form>
-    <p class="auth-note">Demo password: <code>PrintAdmin123!</code>. Replace this with server-side authentication before deployment.</p>
+    <p class="auth-note">This key is set server-side as the ADMIN_KEY secret (wrangler secret put ADMIN_KEY) — it is never hardcoded in the page.</p>
   </div></div>`;
-  document.getElementById('adminLoginForm').addEventListener('submit', (e) => {
+  document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (document.getElementById('adminPassword').value === 'PrintAdmin123!'){ adminUnlocked = true; location.hash = 'admin'; }
-    else notify('Incorrect demo admin password.');
+    const key = document.getElementById('adminPassword').value;
+    window.PFApi.setAdminKey(key);
+    try {
+      await window.PFApi.adminFetchOrders(); // probe: throws 401 if the key is wrong
+      adminUnlocked = true;
+      location.hash = 'admin';
+    } catch (err) {
+      window.PFApi.setAdminKey(null);
+      notify('Incorrect admin key.');
+    }
   });
   bindLinks();
 }
 
-function renderAdmin(){
+async function renderAdmin(){
   if (!adminUnlocked){ location.hash = 'admin-login'; return; }
   const view = document.getElementById('view');
-  const orders = getOrders();
+  view.innerHTML = `<div class="wrap"><p class="auth-note">Loading dashboard…</p></div>`;
+  let orders = [], quotes = [];
+  try {
+    [orders, quotes] = await Promise.all([window.PFApi.adminFetchOrders(), window.PFApi.adminFetchQuotes()]);
+  } catch (err) {
+    view.innerHTML = `<div class="wrap"><p class="auth-note">Couldn't load dashboard: ${esc(err.message)}</p></div>`;
+    return;
+  }
   const revenue = orders.reduce((s,o) => s+o.total, 0);
   const catCounts = {};
   Object.values(DATA).forEach(p => { catCounts[p.cat] = (catCounts[p.cat]||0)+1; });
-  const stats = [['Orders', orders.length], ['Demo revenue', '₹'+revenue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})], ['Products', Object.keys(DATA).length], ['Awaiting review', orders.filter(o=>o.status==='Received').length]];
-  const rows = orders.slice().reverse().map(o => `<tr><td><b>${esc(o.id)}</b></td><td>${esc(o.customer)}<br><small>${esc(o.email)}</small></td><td>${new Date(o.createdAt).toLocaleDateString()}</td><td>${o.items.length} line(s)</td><td>₹${o.total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+  const stats = [['Orders', orders.length], ['Revenue', '₹'+revenue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})], ['Open quotes', quotes.filter(q=>q.status==='New').length], ['Awaiting review', orders.filter(o=>o.status==='Received').length]];
+  const rows = orders.slice().reverse().map(o => `<tr><td><b>${esc(o.id)}</b></td><td>${esc(o.customer)}</td><td>${new Date(o.createdAt).toLocaleDateString()}</td><td>₹${o.total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
     <td><select class="table-status" data-order="${esc(o.id)}">${['Received','Processing','Printed','Shipped','Completed','Cancelled'].map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></td></tr>`).join('');
+  const quoteRows = quotes.slice().reverse().map(q => `<tr><td><b>${esc(q.id)}</b></td><td>${esc(q.name)}<br><small>${esc(q.email)}</small></td><td>${esc(q.department||'—')}</td><td>${new Date(q.created_at).toLocaleDateString()}</td>
+    <td><select class="table-qstatus" data-quote="${esc(q.id)}">${['New','In Progress','Quoted','Closed'].map(s => `<option ${q.status===s?'selected':''}>${s}</option>`).join('')}</select></td></tr>`).join('');
   view.innerHTML = `<div class="wrap">
-    <div class="admin-heading"><div><span class="eyebrow">STORE MANAGEMENT</span><h1>Admin Dashboard</h1><p class="sub" style="margin:0;">Local prototype data from this browser.</p></div>
+    <div class="admin-heading"><div><span class="eyebrow">STORE MANAGEMENT</span><h1>Admin Dashboard</h1><p class="sub" style="margin:0;">Live data from the Print Haus database.</p></div>
       <button class="button button-outline" id="adminLogout">Exit Admin</button></div>
     <div class="admin-stats">${stats.map(([a,b]) => `<div class="stat-box"><small>${esc(a)}</small><strong>${b}</strong></div>`).join('')}</div>
     <div class="panel" style="margin-bottom:20px;">
       <div class="table-heading"><h2 style="font-size:17px;margin:0;">Recent Orders</h2><button class="button button-small" id="exportOrders">Export CSV</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Items</th><th>Total</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
-      ${orders.length ? '' : '<p class="auth-note">No orders yet. Place a demo order to populate the dashboard.</p>'}
+      <div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Total</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${orders.length ? '' : '<p class="auth-note">No orders yet.</p>'}
+    </div>
+    <div class="panel" style="margin-bottom:20px;">
+      <h2 style="font-size:17px;margin:0 0 12px;">Quote Requests</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Contact</th><th>Department</th><th>Date</th><th>Status</th></tr></thead><tbody>${quoteRows}</tbody></table></div>
+      ${quotes.length ? '' : '<p class="auth-note">No quote requests yet.</p>'}
     </div>
     <div class="panel">
       <h2 style="font-size:17px;margin:0 0 12px;">Product Catalog</h2>
-      <p class="auth-note" style="text-align:left;margin:0 0 12px;">${Object.keys(DATA).length} products across ${CATS.length} categories. Catalog editing requires a backend in production.</p>
+      <p class="auth-note" style="text-align:left;margin:0 0 12px;">${Object.keys(DATA).length} products across ${CATS.length} categories.</p>
       ${CATS.map(c => `<div class="admin-catalog-row"><span>${esc(c)}</span><b>${catCounts[c]} products <small>· from ₹${(Math.min(...Object.entries(DATA).filter(([,p])=>p.cat===c).map(([,p])=>cheapestFrom(p)??Infinity))).toFixed(2)}</small></b></div>`).join('')}
     </div>
   </div>`;
-  document.getElementById('adminLogout').addEventListener('click', () => { adminUnlocked = false; location.hash = 'home'; });
+  document.getElementById('adminLogout').addEventListener('click', () => { adminUnlocked = false; window.PFApi.setAdminKey(null); location.hash = 'home'; });
   document.getElementById('exportOrders').addEventListener('click', async () => {
-    const rows2 = [['Order ID','Customer','Email','Date','Total','Status','Address'], ...orders.map(o => [o.id,o.customer,o.email,o.createdAt,o.total,o.status,o.address])];
+    const rows2 = [['Order ID','Customer','Date','Total','Status','Address'], ...orders.map(o => [o.id,o.customer,o.createdAt,o.total,o.status,o.address])];
     const csv = rows2.map(r => r.map(v => '"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
     const downloads = await claude.use('downloads').catch(() => null);
     if (!downloads){ notify('Downloads aren\'t available in this view — open the artifact directly to export.'); return; }
     try {
-      await downloads.save({ filename: 'printforge-orders.csv', data: csv });
+      await downloads.save({ filename: 'printhaus-orders.csv', data: csv });
     } catch(e){ notify('Export was cancelled or failed.'); }
   });
   document.querySelectorAll('.table-status').forEach(sel => {
-    sel.addEventListener('change', (e) => {
-      const id = e.target.dataset.order;
-      const allOrders = getOrders();
-      const o = allOrders.find(x => x.id === id);
-      if (o){ o.status = e.target.value; saveOrders(allOrders); notify('Order status updated in this browser.'); }
+    sel.addEventListener('change', async (e) => {
+      try { await window.PFApi.adminSetOrderStatus(e.target.dataset.order, e.target.value); notify('Order status updated.'); }
+      catch (err) { notify('Couldn\'t update status: ' + err.message); }
+    });
+  });
+  document.querySelectorAll('.table-qstatus').forEach(sel => {
+    sel.addEventListener('change', async (e) => {
+      try { await window.PFApi.adminSetQuoteStatus(e.target.dataset.quote, e.target.value); notify('Quote status updated.'); }
+      catch (err) { notify('Couldn\'t update status: ' + err.message); }
     });
   });
   bindLinks();

@@ -1,5 +1,12 @@
 name = "printhaus"
 compatibility_date = "2024-09-23"
+main = "src/worker.js"
 
 [assets]
 directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "printhaus"
+database_id = "a6ce98e0-f17d-4d52-b2e3-9d39e21a9f8a"
