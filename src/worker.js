@@ -20,6 +20,17 @@
  *   GET  /api/admin/quotes  (header: X-Admin-Key) -> { quotes: [...] }
  *   PATCH /api/admin/quotes/:id  (header: X-Admin-Key) { status } -> { ok }
  *
+ *   -- Job orders (production tracking, admin-only) --
+ *   GET   /api/admin/job-orders              -> { jobOrders: [...] }
+ *   POST  /api/admin/job-orders              { sourceType, sourceId, title, customerName, customerEmail,
+ *                                               priority?, dueDate?, materialCost?, laborCost?, overheadCost?,
+ *                                               quotedPrice?, notes? } -> { ok, jobOrder: { id } }
+ *   PATCH /api/admin/job-orders/:id          { stage?, priority?, dueDate?, materialCost?, laborCost?,
+ *                                               overheadCost?, quotedPrice?, notes?, eventNote? } -> { ok }
+ *        (a stage change is logged to job_order_events automatically; pass
+ *         eventNote to attach a note to that log entry)
+ *   GET   /api/admin/job-orders/:id/events   -> { events: [...] }
+ *
  * Auth model: a random session token is stored in the `sessions` table and
  * returned to the client, which keeps it in localStorage (same as before —
  * only the account/order DATA moved server-side, not the browser's handling
@@ -228,6 +239,67 @@ export default {
         const { status } = await request.json();
         if (!status) return err('status is required');
         await db.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, orderStatusMatch[1]).run();
+        return json({ ok: true });
+      }
+
+      // ---------- Job orders (production tracking) ----------
+      if (pathname === '/api/admin/job-orders' && request.method === 'GET') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const rows = await db.prepare('SELECT * FROM job_orders ORDER BY updated_at DESC').all();
+        return json({ jobOrders: rows.results });
+      }
+
+      if (pathname === '/api/admin/job-orders' && request.method === 'POST') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const body = await request.json();
+        const { sourceType, sourceId, title, customerName, customerEmail, priority, dueDate, materialCost, laborCost, overheadCost, quotedPrice, notes } = body;
+        if (!sourceType || !sourceId || !title) return err('sourceType, sourceId, and title are required');
+        if (sourceType !== 'order' && sourceType !== 'quote') return err('sourceType must be "order" or "quote"');
+        const id = 'JOB-' + Date.now().toString().slice(-8);
+        await db
+          .prepare(
+            `INSERT INTO job_orders
+             (id, source_type, source_id, title, customer_name, customer_email, stage, priority, due_date, material_cost, labor_cost, overhead_cost, quoted_price, notes)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          )
+          .bind(
+            id, sourceType, sourceId, title, customerName || '', customerEmail || '',
+            'Queued', priority || 'Normal', dueDate || null,
+            materialCost || 0, laborCost || 0, overheadCost || 0, quotedPrice || 0, notes || ''
+          )
+          .run();
+        await db.prepare('INSERT INTO job_order_events (job_id, stage, note) VALUES (?,?,?)').bind(id, 'Queued', 'Job order created').run();
+        return json({ ok: true, jobOrder: { id } });
+      }
+
+      const jobEventsMatch = pathname.match(/^\/api\/admin\/job-orders\/([^/]+)\/events$/);
+      if (jobEventsMatch && request.method === 'GET') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const rows = await db.prepare('SELECT * FROM job_order_events WHERE job_id = ? ORDER BY created_at ASC').bind(jobEventsMatch[1]).all();
+        return json({ events: rows.results });
+      }
+
+      const jobUpdateMatch = pathname.match(/^\/api\/admin\/job-orders\/([^/]+)$/);
+      if (jobUpdateMatch && request.method === 'PATCH') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const jobId = jobUpdateMatch[1];
+        const body = await request.json();
+        const fieldMap = {
+          stage: 'stage', priority: 'priority', dueDate: 'due_date', materialCost: 'material_cost',
+          laborCost: 'labor_cost', overheadCost: 'overhead_cost', quotedPrice: 'quoted_price', notes: 'notes'
+        };
+        const sets = [];
+        const values = [];
+        for (const [key, col] of Object.entries(fieldMap)) {
+          if (body[key] !== undefined) { sets.push(col + ' = ?'); values.push(body[key]); }
+        }
+        if (!sets.length) return err('No updatable fields provided');
+        sets.push("updated_at = datetime('now')");
+        values.push(jobId);
+        await db.prepare(`UPDATE job_orders SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
+        if (body.stage !== undefined) {
+          await db.prepare('INSERT INTO job_order_events (job_id, stage, note) VALUES (?,?,?)').bind(jobId, body.stage, body.eventNote || '').run();
+        }
         return json({ ok: true });
       }
 

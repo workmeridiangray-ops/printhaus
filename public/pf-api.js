@@ -129,11 +129,31 @@
     return adminCall('/api/admin/quotes/' + encodeURIComponent(id), { method: 'PATCH', body: { status } });
   }
 
+  // ---------- Job orders (production tracking) ----------
+  async function adminFetchJobOrders() {
+    const data = await adminCall('/api/admin/job-orders');
+    return data.jobOrders;
+  }
+
+  async function adminCreateJobOrder(job) {
+    return adminCall('/api/admin/job-orders', { method: 'POST', body: job });
+  }
+
+  async function adminUpdateJobOrder(id, patch) {
+    return adminCall('/api/admin/job-orders/' + encodeURIComponent(id), { method: 'PATCH', body: patch });
+  }
+
+  async function adminFetchJobOrderEvents(id) {
+    const data = await adminCall('/api/admin/job-orders/' + encodeURIComponent(id) + '/events');
+    return data.events;
+  }
+
   global.PFApi = {
     getSession, signup, login, logout,
     placeOrder, fetchOrders,
     submitQuote,
     getAdminKey, setAdminKey,
-    adminFetchOrders, adminFetchQuotes, adminSetOrderStatus, adminSetQuoteStatus
+    adminFetchOrders, adminFetchQuotes, adminSetOrderStatus, adminSetQuoteStatus,
+    adminFetchJobOrders, adminCreateJobOrder, adminUpdateJobOrder, adminFetchJobOrderEvents
   };
 })(window);

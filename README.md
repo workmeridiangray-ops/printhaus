@@ -35,6 +35,18 @@ npx wrangler dev
 ```
 Note: local preview uses a local D1 emulation, separate from the remote database — run `wrangler dev --remote` to hit the real production database while testing locally.
 
+## Job orders (production tracking)
+
+The Admin Dashboard now includes a **Job Orders** panel — this is the
+piece that would otherwise have needed ERPNext (Sales Order → Work Order).
+From any paid order or quote request, click **Create Job** to open a job
+order; it then tracks through production stages (Queued → Design →
+Prepress → Printing → Finishing → QC → Ready → Dispatched → Delivered, plus
+On Hold / Cancelled), with editable priority and material/labor/overhead
+costs shown against the quoted price so you can see margin per job at a
+glance. Backed by the `job_orders` and `job_order_events` tables in D1 —
+see `schema.sql`.
+
 ## How accounts/orders/quotes work now
 
 - **Sign up / Login** (`#account`) → `POST /api/signup` / `/api/login` → creates a row in `users`, a session token in `sessions`, returned to the browser and kept in `localStorage` (`pf_token`) — same place the old prototype kept its session, just holding a token instead of the whole user object.

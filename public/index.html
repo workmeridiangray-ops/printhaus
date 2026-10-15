@@ -890,34 +890,60 @@ async function renderAdmin(){
   if (!adminUnlocked){ location.hash = 'admin-login'; return; }
   const view = document.getElementById('view');
   view.innerHTML = `<div class="wrap"><p class="auth-note">Loading dashboard…</p></div>`;
-  let orders = [], quotes = [];
+  let orders = [], quotes = [], jobOrders = [];
   try {
-    [orders, quotes] = await Promise.all([window.PFApi.adminFetchOrders(), window.PFApi.adminFetchQuotes()]);
+    [orders, quotes, jobOrders] = await Promise.all([window.PFApi.adminFetchOrders(), window.PFApi.adminFetchQuotes(), window.PFApi.adminFetchJobOrders()]);
   } catch (err) {
     view.innerHTML = `<div class="wrap"><p class="auth-note">Couldn't load dashboard: ${esc(err.message)}</p></div>`;
     return;
   }
+  const JOB_STAGES = ['Queued','Design','Prepress','Printing','Finishing','QC','Ready','Dispatched','Delivered','On Hold','Cancelled'];
   const revenue = orders.reduce((s,o) => s+o.total, 0);
   const catCounts = {};
   Object.values(DATA).forEach(p => { catCounts[p.cat] = (catCounts[p.cat]||0)+1; });
-  const stats = [['Orders', orders.length], ['Revenue', '₹'+revenue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})], ['Open quotes', quotes.filter(q=>q.status==='New').length], ['Awaiting review', orders.filter(o=>o.status==='Received').length]];
-  const rows = orders.slice().reverse().map(o => `<tr><td><b>${esc(o.id)}</b></td><td>${esc(o.customer)}</td><td>${new Date(o.createdAt).toLocaleDateString()}</td><td>₹${o.total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-    <td><select class="table-status" data-order="${esc(o.id)}">${['Received','Processing','Printed','Shipped','Completed','Cancelled'].map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></td></tr>`).join('');
-  const quoteRows = quotes.slice().reverse().map(q => `<tr><td><b>${esc(q.id)}</b></td><td>${esc(q.name)}<br><small>${esc(q.email)}</small></td><td>${esc(q.department||'—')}</td><td>${new Date(q.created_at).toLocaleDateString()}</td>
-    <td><select class="table-qstatus" data-quote="${esc(q.id)}">${['New','In Progress','Quoted','Closed'].map(s => `<option ${q.status===s?'selected':''}>${s}</option>`).join('')}</select></td></tr>`).join('');
+  const activeJobs = jobOrders.filter(j => !['Delivered','Cancelled'].includes(j.stage));
+  const stats = [['Orders', orders.length], ['Revenue', '₹'+revenue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})], ['Open quotes', quotes.filter(q=>q.status==='New').length], ['Active jobs', activeJobs.length]];
+  const jobBySource = {};
+  jobOrders.forEach(j => { jobBySource[j.source_type + ':' + j.source_id] = j; });
+  const rows = orders.slice().reverse().map(o => { const existingJob = jobBySource['order:' + o.id];
+    return `<tr><td><b>${esc(o.id)}</b></td><td>${esc(o.customer)}</td><td>${new Date(o.createdAt).toLocaleDateString()}</td><td>₹${o.total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+    <td><select class="table-status" data-order="${esc(o.id)}">${['Received','Processing','Printed','Shipped','Completed','Cancelled'].map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
+    <td>${existingJob ? `<span class="order-status">${esc(existingJob.stage)}</span>` : `<button class="button button-small btn-make-job" data-source-type="order" data-source-id="${esc(o.id)}" data-title="Order ${esc(o.id)}" data-customer="${esc(o.customer)}" data-price="${o.total}">Create Job</button>`}</td></tr>`; }).join('');
+  const quoteRows = quotes.slice().reverse().map(q => { const existingJob = jobBySource['quote:' + q.id];
+    return `<tr><td><b>${esc(q.id)}</b></td><td>${esc(q.name)}<br><small>${esc(q.email)}</small></td><td>${esc(q.department||'—')}</td><td>${new Date(q.created_at).toLocaleDateString()}</td>
+    <td><select class="table-qstatus" data-quote="${esc(q.id)}">${['New','In Progress','Quoted','Closed'].map(s => `<option ${q.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
+    <td>${existingJob ? `<span class="order-status">${esc(existingJob.stage)}</span>` : `<button class="button button-small btn-make-job" data-source-type="quote" data-source-id="${esc(q.id)}" data-title="${esc(q.product || 'Quote ' + q.id)}" data-customer="${esc(q.name)}" data-email="${esc(q.email)}" data-price="0">Create Job</button>`}</td></tr>`; }).join('');
+  const jobRows = jobOrders.map(j => { const costTotal = j.material_cost + j.labor_cost + j.overhead_cost; const margin = j.quoted_price - costTotal;
+    return `<tr>
+      <td><b>${esc(j.id)}</b><br><small>${esc(j.title)}</small></td>
+      <td>${esc(j.customer_name||'—')}</td>
+      <td><select class="job-stage" data-job="${esc(j.id)}">${JOB_STAGES.map(s => `<option ${j.stage===s?'selected':''}>${s}</option>`).join('')}</select></td>
+      <td><select class="job-priority" data-job="${esc(j.id)}">${['Low','Normal','High','Rush'].map(s => `<option ${j.priority===s?'selected':''}>${s}</option>`).join('')}</select></td>
+      <td class="job-costs" data-job="${esc(j.id)}">
+        <input type="number" step="0.01" class="job-cost-input" data-job="${esc(j.id)}" data-field="materialCost" value="${j.material_cost}" title="Material cost" style="width:70px;">
+        <input type="number" step="0.01" class="job-cost-input" data-job="${esc(j.id)}" data-field="laborCost" value="${j.labor_cost}" title="Labor cost" style="width:70px;">
+        <input type="number" step="0.01" class="job-cost-input" data-job="${esc(j.id)}" data-field="overheadCost" value="${j.overhead_cost}" title="Overhead" style="width:70px;">
+      </td>
+      <td>₹${j.quoted_price.toFixed(2)}<br><small style="color:${margin>=0?'var(--navy)':'#b33'};">margin ₹${margin.toFixed(2)}</small></td>
+    </tr>`; }).join('');
   view.innerHTML = `<div class="wrap">
     <div class="admin-heading"><div><span class="eyebrow">STORE MANAGEMENT</span><h1>Admin Dashboard</h1><p class="sub" style="margin:0;">Live data from the Print Haus database.</p></div>
       <button class="button button-outline" id="adminLogout">Exit Admin</button></div>
     <div class="admin-stats">${stats.map(([a,b]) => `<div class="stat-box"><small>${esc(a)}</small><strong>${b}</strong></div>`).join('')}</div>
     <div class="panel" style="margin-bottom:20px;">
       <div class="table-heading"><h2 style="font-size:17px;margin:0;">Recent Orders</h2><button class="button button-small" id="exportOrders">Export CSV</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Total</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Total</th><th>Status</th><th>Job</th></tr></thead><tbody>${rows}</tbody></table></div>
       ${orders.length ? '' : '<p class="auth-note">No orders yet.</p>'}
     </div>
     <div class="panel" style="margin-bottom:20px;">
       <h2 style="font-size:17px;margin:0 0 12px;">Quote Requests</h2>
-      <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Contact</th><th>Department</th><th>Date</th><th>Status</th></tr></thead><tbody>${quoteRows}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Contact</th><th>Department</th><th>Date</th><th>Status</th><th>Job</th></tr></thead><tbody>${quoteRows}</tbody></table></div>
       ${quotes.length ? '' : '<p class="auth-note">No quote requests yet.</p>'}
+    </div>
+    <div class="panel" style="margin-bottom:20px;">
+      <h2 style="font-size:17px;margin:0 0 12px;">Job Orders <small style="font-weight:400;color:var(--muted);">— production tracking &amp; costing</small></h2>
+      <div class="table-wrap"><table><thead><tr><th>Job</th><th>Customer</th><th>Stage</th><th>Priority</th><th>Costs (material / labor / overhead)</th><th>Quoted / Margin</th></tr></thead><tbody>${jobRows}</tbody></table></div>
+      ${jobOrders.length ? '' : '<p class="auth-note">No job orders yet. Click "Create Job" on an order or quote above to open one.</p>'}
     </div>
     <div class="panel">
       <h2 style="font-size:17px;margin:0 0 12px;">Product Catalog</h2>
@@ -945,6 +971,46 @@ async function renderAdmin(){
     sel.addEventListener('change', async (e) => {
       try { await window.PFApi.adminSetQuoteStatus(e.target.dataset.quote, e.target.value); notify('Quote status updated.'); }
       catch (err) { notify('Couldn\'t update status: ' + err.message); }
+    });
+  });
+  document.querySelectorAll('.btn-make-job').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await window.PFApi.adminCreateJobOrder({
+          sourceType: btn.dataset.sourceType,
+          sourceId: btn.dataset.sourceId,
+          title: btn.dataset.title,
+          customerName: btn.dataset.customer,
+          customerEmail: btn.dataset.email || '',
+          quotedPrice: parseFloat(btn.dataset.price) || 0
+        });
+        notify('Job order created.');
+        renderAdmin();
+      } catch (err) {
+        notify('Couldn\'t create job: ' + err.message);
+        btn.disabled = false;
+      }
+    });
+  });
+  document.querySelectorAll('.job-stage').forEach(sel => {
+    sel.addEventListener('change', async (e) => {
+      try { await window.PFApi.adminUpdateJobOrder(e.target.dataset.job, { stage: e.target.value }); notify('Job stage updated.'); }
+      catch (err) { notify('Couldn\'t update stage: ' + err.message); }
+    });
+  });
+  document.querySelectorAll('.job-priority').forEach(sel => {
+    sel.addEventListener('change', async (e) => {
+      try { await window.PFApi.adminUpdateJobOrder(e.target.dataset.job, { priority: e.target.value }); notify('Job priority updated.'); }
+      catch (err) { notify('Couldn\'t update priority: ' + err.message); }
+    });
+  });
+  document.querySelectorAll('.job-cost-input').forEach(inp => {
+    inp.addEventListener('change', async (e) => {
+      const field = e.target.dataset.field;
+      const val = parseFloat(e.target.value) || 0;
+      try { await window.PFApi.adminUpdateJobOrder(e.target.dataset.job, { [field]: val }); notify('Cost updated.'); }
+      catch (err) { notify('Couldn\'t update cost: ' + err.message); }
     });
   });
   bindLinks();
