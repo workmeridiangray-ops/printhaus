@@ -1,6 +1,7 @@
 name = "printhaus"
 compatibility_date = "2024-09-23"
 main = "src/worker.js"
+account_id = "348471314fadbd57e39a68b2eadb5984"
 
 [assets]
 directory = "./public"
