@@ -1142,7 +1142,7 @@ const USP_ICONS = {
 };
 
 function currentSize(){ return document.querySelector('#sizeSwatches .swatch-card.selected')?.dataset.size; }
-function currentOpt(){ return document.querySelector('#optPills .choice.selected')?.dataset.opt; }
+function currentOpt(){ return document.querySelector('#optPills .swatch-card.selected')?.dataset.opt; }
 
 function populateSizes(slug){
   const p = DATA[slug];
