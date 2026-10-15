@@ -1047,12 +1047,12 @@ function renderProduct(slug){
           <p class="image-note">Illustrative product preview — final print may vary</p>
 
           <div class="detail-tabs">
-            <a class="tab-active" href="#description-${esc(slug)}">Description</a>
-            <a href="#specifications-${esc(slug)}">Specifications</a>
-            <a href="#artwork-${esc(slug)}">Artwork Guidelines</a>
-            <a href="#delivery-${esc(slug)}">Delivery &amp; Returns</a>
+            <a class="tab-active" data-tab="description-${esc(slug)}" href="#">Description</a>
+            <a data-tab="specifications-${esc(slug)}" href="#">Specifications</a>
+            <a data-tab="artwork-${esc(slug)}" href="#">Artwork Guidelines</a>
+            <a data-tab="delivery-${esc(slug)}" href="#">Delivery &amp; Returns</a>
           </div>
-          <div class="description-panel" id="description-${esc(slug)}">
+          <div class="description-panel tab-panel" id="description-${esc(slug)}">
             <p>Our ${esc(p.name.toLowerCase())} are printed using high-quality paper and advanced printing technology to ensure sharp details and a professional finish. Perfect for businesses, freelancers and events.</p>
             <ul class="check-grid">
               <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>High-quality printing</li>
@@ -1063,13 +1063,22 @@ function renderProduct(slug){
               <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Option for professional design support</li>
             </ul>
           </div>
-          <div class="specs" id="specifications-${esc(slug)}">
+          <div class="specs tab-panel" id="specifications-${esc(slug)}" hidden>
             <h2>Specifications</h2>
             <p><b>Category:</b> ${esc(p.cat)}${p.subcat && p.subcat!==p.cat ? ' / '+esc(p.subcat) : ''}</p>
             <p><b>Available sizes:</b> ${sizes.map(esc).join(', ')}</p>
             <p><b>Quantity range:</b> ${esc(p.qtyRange||'varies by option')}</p>
-            <p id="artwork-${esc(slug)}"><b>Artwork:</b> Upload-ready PDF recommended, CMYK color mode, 3mm bleed on edge-to-edge designs.</p>
-            <p id="delivery-${esc(slug)}"><b>Delivery &amp; Returns:</b> Dispatched within 3 business days, pan-India delivery. Issues with print quality are resolved free of charge.</p>
+          </div>
+          <div class="specs tab-panel" id="artwork-${esc(slug)}" hidden>
+            <h2>Artwork Guidelines</h2>
+            <p>Upload-ready PDF recommended (AI, PSD, PNG and JPG also accepted). Use CMYK color mode for accurate print colors — RGB files will be auto-converted and may shift slightly. Add a 3mm bleed on any edge-to-edge design, and keep key text/logos at least 3mm inside the trim line. Minimum resolution 300dpi at final print size.</p>
+            <p>No design file? Check "Need Design Support?" on the ordering panel and our team will create one for you for a flat ₹299.</p>
+          </div>
+          <div class="specs tab-panel" id="delivery-${esc(slug)}" hidden>
+            <h2>Delivery &amp; Returns</h2>
+            <p><b>Production time:</b> Dispatched within 3 business days of artwork approval and payment confirmation (longer for bulk/custom orders — the exact timeline is confirmed at checkout).</p>
+            <p><b>Shipping:</b> Pan-India delivery via our logistics partners; tracking details are shared once your order ships.</p>
+            <p><b>Returns &amp; reprints:</b> Since every order is printed to your specification, we don't accept returns for correct, as-approved orders. If there's a genuine print-quality defect or production error on our side, we reprint or refund at no extra charge — contact us within 7 days of delivery with photos of the issue.</p>
           </div>
         </div>
         <div class="product-info">
@@ -1128,7 +1137,13 @@ function renderProduct(slug){
     t.addEventListener('click', () => { document.querySelectorAll('.thumb').forEach(x => x.classList.remove('selected')); t.classList.add('selected'); });
   });
   document.querySelectorAll('.detail-tabs a').forEach(a => {
-    a.addEventListener('click', () => { document.querySelectorAll('.detail-tabs a').forEach(x => x.classList.remove('tab-active')); a.classList.add('tab-active'); });
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.querySelectorAll('.detail-tabs a').forEach(x => x.classList.remove('tab-active'));
+      a.classList.add('tab-active');
+      const target = a.dataset.tab;
+      document.querySelectorAll('.tab-panel').forEach(panel => { panel.hidden = panel.id !== target; });
+    });
   });
   bindLinks();
   populateSizes(slug);
