@@ -1153,13 +1153,25 @@ function populateSizes(slug){
   populateOptionsForSize(slug);
 }
 
+// Raw option keys look like "Select Shape: Arch | Quality: Basic | Select Material: Kraft Paper" —
+// each "|"-separated segment repeats its own field label before the value. Since those field
+// names are already implied by context (and the group itself is labeled "Options"), show only
+// the values a shopper actually needs to compare, e.g. "Arch · Basic · Kraft Paper".
+function cleanOptionLabel(raw){
+  if (raw === '(default)') return 'Standard';
+  return raw.split('|').map(seg => {
+    const idx = seg.indexOf(':');
+    return (idx === -1 ? seg : seg.slice(idx + 1)).trim();
+  }).join(' · ');
+}
+
 function populateOptionsForSize(slug){
   const p = DATA[slug];
   const size = currentSize();
   const optMap = p.sizes[size] || {};
   const opts = Object.keys(optMap);
   const optPills = document.getElementById('optPills');
-  optPills.innerHTML = opts.map((o,i) => `<button type="button" class="swatch-card${i===0?' selected':''}" data-opt="${esc(o)}"><span class="swatch-thumb"></span><span><b>${esc(o==='(default)' ? 'Standard' : o)}</b></span></button>`).join('');
+  optPills.innerHTML = opts.map((o,i) => `<button type="button" class="swatch-card${i===0?' selected':''}" data-opt="${esc(o)}"><span class="swatch-thumb"></span><span><b>${esc(cleanOptionLabel(o))}</b></span></button>`).join('');
   optPills.querySelectorAll('.swatch-card').forEach(btn => {
     btn.onclick = () => { optPills.querySelectorAll('.swatch-card').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); populateQty(slug); };
   });
@@ -1205,7 +1217,7 @@ function updatePrice(slug){
   document.getElementById('designSupport').onchange = () => updatePrice(slug);
   const addBtn = document.getElementById('addCartBtn');
   addBtn.onclick = () => {
-    addToCart({ slug, name: p.name, size, opt: opt==='(default)'?'Standard':opt, qty: q, unit });
+    addToCart({ slug, name: p.name, size, opt: cleanOptionLabel(opt), qty: q, unit });
     const msg = document.getElementById('cartMsg');
     msg.textContent = 'Added to cart.';
     setTimeout(() => { msg.textContent = ''; }, 2500);
