@@ -293,7 +293,10 @@ footer{background:var(--pink-deep);color:white;padding-top:42px}
 .order-top b{font-family:Fraunces,serif;}
 .order-status{font-size:11px;font-weight:700;background:var(--pale);color:var(--navy);padding:5px 10px;border-radius:20px;}
 .order-card p{font-size:13px;color:var(--muted);margin:3px 0;}
-.order-card .ototal{font-family:Fraunces,serif;font-weight:800;font-size:15px;margin-top:6px;display:block;}
+.order-card .ototal{font-family:Fraunces,serif;font-weight:800;font-size:15px;display:inline-block;}
+.order-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:18px 0 20px;}
+.order-tab{padding:10px 16px;font-size:13px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;}
+.order-tab.active{color:var(--navy);border-bottom-color:var(--pink);}
 .checkout-layout{display:grid;grid-template-columns:1.3fr 1fr;gap:24px;padding-bottom:50px;align-items:start;}
 @media(max-width:800px){.checkout-layout{grid-template-columns:1fr;}}
 .panel{border:1px solid var(--line);border-radius:12px;padding:22px;}
@@ -490,7 +493,8 @@ function router(){
   if (hash === 'wishlist') return renderWishlist();
   if (hash === 'cart') return renderCart();
   if (hash === 'signin' || hash === 'account') return renderAccount();
-  if (hash === 'orders') return renderOrders();
+  if (hash === 'orders') return renderOrders('orders');
+  if (hash === 'orders-quotes') return renderOrders('quotes');
   if (hash === 'checkout') return renderCheckout();
   if (hash === 'admin-login') return renderAdminLogin();
   if (hash === 'admin') return renderAdmin();
@@ -779,7 +783,8 @@ function renderAccount(){
 }
 
 /* ---------- My Orders ---------- */
-async function renderOrders(){
+async function renderOrders(tab){
+  tab = tab === 'quotes' ? 'quotes' : 'orders';
   const view = document.getElementById('view');
   const session = getSession();
   if (!session){
@@ -788,20 +793,48 @@ async function renderOrders(){
         <a class="button button-small" href="#account" data-link>Login / Sign up</a></div></div>`;
     bindLinks(); return;
   }
-  view.innerHTML = `<div class="wrap simple-page"><h1>My Orders</h1><p class="auth-note">Loading your orders…</p></div>`;
-  let orders = [];
-  try { orders = await window.PFApi.fetchOrders(); }
-  catch (e) { view.innerHTML = `<div class="wrap simple-page"><h1>My Orders</h1><p class="auth-note">Couldn't load orders: ${esc(e.message)}</p></div>`; bindLinks(); return; }
-  view.innerHTML = `<div class="wrap simple-page"><h1>My Orders</h1>
-    ${orders.length ? orders.slice().reverse().map(o => `
+  view.innerHTML = `<div class="wrap simple-page"><h1>My Orders</h1><p class="auth-note">Loading…</p></div>`;
+  let orders = [], quotes = [];
+  try {
+    [orders, quotes] = await Promise.all([window.PFApi.fetchOrders(), window.PFApi.fetchMyQuotes()]);
+  } catch (e) {
+    view.innerHTML = `<div class="wrap simple-page"><h1>My Orders</h1><p class="auth-note">Couldn't load: ${esc(e.message)}</p></div>`;
+    bindLinks(); return;
+  }
+  const tabs = `<div class="order-tabs">
+    <a href="#orders" data-link class="order-tab${tab==='orders'?' active':''}">Orders</a>
+    <a href="#orders-quotes" data-link class="order-tab${tab==='quotes'?' active':''}">My Quotations</a>
+  </div>`;
+  const ordersHtml = orders.length ? orders.slice().reverse().map(o => `
       <div class="order-card">
         <div class="order-top"><b>${esc(o.id)}</b><span class="order-status">${esc(o.status)}</span></div>
         <p>${new Date(o.createdAt).toLocaleString()} · ${o.items.length} line item(s)</p>
         <p>${o.items.map(i => esc(i.name) + ' × ' + i.qty).join(', ')}</p>
-        <span class="ototal">₹${o.total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+          <span class="ototal">₹${o.total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          <button class="button button-small button-outline btn-order-again" data-order="${esc(o.id)}">Order Again</button>
+        </div>
       </div>`).join('') :
-      `<div class="empty-state"><p>No orders yet. Your placed orders will appear here.</p><a class="button button-small" href="#shop" data-link>Start Shopping</a></div>`}
+      `<div class="empty-state"><p>No orders yet. Your placed orders will appear here.</p><a class="button button-small" href="#shop" data-link>Start Shopping</a></div>`;
+  const quotesHtml = quotes.length ? quotes.slice().reverse().map(q => `
+      <div class="order-card">
+        <div class="order-top"><b>${esc(q.id)}</b><span class="order-status">${esc(q.status)}</span></div>
+        <p>${new Date(q.created_at).toLocaleString()}${q.product ? ' · ' + esc(q.product) : ''}</p>
+        <p>${esc(q.message||'')}</p>
+      </div>`).join('') :
+      `<div class="empty-state"><p>No quote requests yet.</p><a class="button button-small" href="#quote" data-link>Request a Quote</a></div>`;
+  view.innerHTML = `<div class="wrap simple-page"><h1>My Orders</h1>${tabs}
+    <div>${tab === 'orders' ? ordersHtml : quotesHtml}</div>
   </div>`;
+  document.querySelectorAll('.btn-order-again').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const order = orders.find(o => o.id === btn.dataset.order);
+      if (!order) return;
+      order.items.forEach(i => addToCart({ slug: i.slug, name: i.name, size: i.size, opt: i.opt, qty: i.qty, unit: i.unit }));
+      notify('Items added to your cart.');
+      location.hash = 'cart';
+    });
+  });
   bindLinks();
 }
 

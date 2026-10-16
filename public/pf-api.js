@@ -91,6 +91,11 @@
     return call('/api/quotes', { method: 'POST', body: q });
   }
 
+  async function fetchMyQuotes() {
+    const data = await call('/api/quotes/mine');
+    return data.quotes;
+  }
+
   // ---------- Admin ----------
   const ADMIN_KEY_STORAGE = 'pf_admin_key';
   function getAdminKey() { try { return sessionStorage.getItem(ADMIN_KEY_STORAGE); } catch (e) { return null; } }
@@ -235,7 +240,7 @@
   global.PFApi = {
     getSession, signup, login, logout,
     placeOrder, fetchOrders, fetchOrderEvents,
-    submitQuote,
+    submitQuote, fetchMyQuotes,
     getAdminKey, setAdminKey,
     adminFetchOrders, adminFetchQuotes, adminSetOrderStatus, adminSetOrderStatusFull, adminSetQuoteStatus,
     adminFetchJobOrders, adminCreateJobOrder, adminUpdateJobOrder, adminFetchJobOrderEvents, adminFetchJobCard,

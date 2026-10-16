@@ -327,6 +327,15 @@ export default {
         return json({ ok: true, quote: { id } });
       }
 
+      // My Quotations — quotes aren't user_id-linked (the form needs no
+      // login), so this matches by the logged-in user's email instead.
+      if (pathname === '/api/quotes/mine' && request.method === 'GET') {
+        const user = await getUserFromToken(db, bearerToken(request));
+        if (!user) return err('Not authenticated', 401);
+        const rows = await db.prepare('SELECT * FROM quotes WHERE email = ? ORDER BY created_at DESC').bind(user.email).all();
+        return json({ quotes: rows.results });
+      }
+
       // ---------- Admin ----------
       const adminKey = request.headers.get('X-Admin-Key');
       const adminOk = env.ADMIN_KEY && adminKey === env.ADMIN_KEY;
