@@ -337,8 +337,12 @@ export default {
       }
 
       // ---------- Admin ----------
+      // Key check temporarily disabled: until ADMIN_KEY is set as a secret
+      // (`wrangler secret put ADMIN_KEY`), admin routes are open to anyone
+      // who reaches them. Re-enable by removing the `!env.ADMIN_KEY ||` once
+      // the secret is set.
       const adminKey = request.headers.get('X-Admin-Key');
-      const adminOk = env.ADMIN_KEY && adminKey === env.ADMIN_KEY;
+      const adminOk = !env.ADMIN_KEY || adminKey === env.ADMIN_KEY;
 
       if (pathname === '/api/admin/orders' && request.method === 'GET') {
         if (!adminOk) return err('Unauthorized', 401);

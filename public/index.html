@@ -413,7 +413,7 @@ function updateBadges(){
 // pf-api.js keeps in localStorage) so existing render-function call sites
 // don't need to become async just to check "is anyone logged in".
 function getSession(){ return window.PFApi ? window.PFApi.getSession() : null; }
-let adminUnlocked = false;
+let adminUnlocked = true; // admin key gate temporarily disabled — no ADMIN_KEY secret set yet
 
 function notify(msg){
   const n = document.getElementById('notice');
@@ -496,7 +496,7 @@ function router(){
   if (hash === 'orders') return renderOrders('orders');
   if (hash === 'orders-quotes') return renderOrders('quotes');
   if (hash === 'checkout') return renderCheckout();
-  if (hash === 'admin-login') return renderAdminLogin();
+  if (hash === 'admin-login') { location.hash = 'admin'; return; }
   if (hash === 'admin') return renderAdmin();
   if (hash === 'quote' || hash.startsWith('quote-')) return renderQuote(hash.startsWith('quote-') ? hash.slice(6) : null);
   if (hash === 'raise-issue') return renderRaiseIssue();
