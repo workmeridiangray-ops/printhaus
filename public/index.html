@@ -278,7 +278,7 @@ footer{background:var(--pink-deep);color:white;padding-top:42px}
 .panel{border:1px solid var(--line);border-radius:12px;padding:22px;}
 .panel label{display:block;font-weight:700;font-size:12px;margin:14px 0 7px;}
 .panel label:first-child{margin-top:0;}
-.panel input,.panel textarea{width:100%;font:inherit;font-size:13px;padding:12px;border:1px solid var(--line);border-radius:8px;}
+.panel input,.panel textarea,.panel select{width:100%;font:inherit;font-size:13px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--navy);}
 .panel h3{font-size:16px;margin:0 0 12px;}
 .summary-row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;color:var(--muted);}
 .summary-row b{color:var(--navy);}
@@ -753,43 +753,97 @@ async function renderOrders(){
 /* ---------- Quote request (fields match Kraftix's contact/quote form) ---------- */
 function renderQuote(productSlug){
   const view = document.getElementById('view');
-  const product = productSlug && DATA[productSlug] ? DATA[productSlug] : null;
+  const initialSlug = productSlug && DATA[productSlug] ? productSlug : null;
+  const nameToSlug = {};
+  Object.entries(DATA).forEach(([slug,p]) => { nameToSlug[p.name] = slug; });
   const allProducts = Object.values(DATA).map(p => p.name).sort((a,b) => a.localeCompare(b));
   const productOptions = allProducts.map(n => `<option value="${esc(n)}">`).join('');
+  const initialName = initialSlug ? DATA[initialSlug].name : '';
   view.innerHTML = `<div class="wrap">
     <div class="breadcrumbs"><a href="#home" data-link>Home</a>　›　Request a Quote</div>
-    <div class="section-heading left" style="padding-top:4px;"><div><span class="eyebrow">LET'S TALK</span><h1>Request a Quote</h1><p>Most prices are already live on the product page — request a quote for bulk pricing, a custom spec, or anything our calculator doesn't cover.</p></div></div>
+    <div class="section-heading left" style="padding-top:4px;"><div><span class="eyebrow">LET'S TALK</span><h1>Request a Quote</h1><p>Pick your product and specs below — pricing and sizes are pulled straight from our catalog, so what you select is exactly what we'll quote.</p></div></div>
     <div class="checkout-layout" style="grid-template-columns:1fr;max-width:620px;">
       <form id="quoteForm" class="panel">
         <label>Which product? <span style="font-weight:400;color:var(--muted);">(search to find it)</span>
-          <input id="qProduct" list="qProductList" required placeholder="Start typing a product name…" value="${product ? esc(product.name) : ''}" autocomplete="off">
+          <input id="qProduct" list="qProductList" required placeholder="Start typing a product name…" value="${esc(initialName)}" autocomplete="off">
           <datalist id="qProductList">${productOptions}</datalist>
         </label>
+        <div id="qSpecsWrap"></div>
         <label>Company<input id="qCompany" placeholder="Your company (optional)"></label>
         <label>Full Name<input id="qName" required placeholder="Your name"></label>
         <label>Email ID<input id="qEmail" type="email" required placeholder="you@example.com"></label>
         <label>WhatsApp Number<input id="qWhatsapp" type="tel" placeholder="+91 ..."></label>
         <label>Order Number<input id="qOrder" placeholder="If this relates to an existing order (optional)"></label>
-        <label>What exactly do you need? <span style="font-weight:400;color:var(--muted);">(size, quantity, finish, deadline — the more detail, the faster we can quote)</span>
-          <textarea id="qMessage" required rows="4" placeholder="e.g. 500 pcs, 3.5in x 2in, matte finish, need by 25th Oct"></textarea>
+        <label>Anything else? <span style="font-weight:400;color:var(--muted);">(custom spec, deadline, artwork notes — optional)</span>
+          <textarea id="qMessage" rows="3" placeholder="e.g. need by 25th Oct, custom color match, etc."></textarea>
         </label>
         <button class="button" style="width:100%;margin-top:18px;border-radius:8px;justify-content:center;" type="submit">Submit Quote Request</button>
         <p class="auth-note">We'll reply by email or WhatsApp, usually within one business day.</p>
       </form>
     </div>
   </div>`;
+
+  function renderSpecs(slug){
+    const wrap = document.getElementById('qSpecsWrap');
+    if (!slug || !DATA[slug]){ wrap.innerHTML = ''; return; }
+    const p = DATA[slug];
+    const sizes = Object.keys(p.sizes);
+    wrap.innerHTML = `
+      <label>Size<select id="qSize"></select></label>
+      <label>Options<select id="qOpt"></select></label>
+      <label>Quantity<select id="qQty"></select></label>
+    `;
+    const sizeSel = document.getElementById('qSize');
+    sizeSel.innerHTML = sizes.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    function refreshOpts(){
+      const size = sizeSel.value;
+      const optMap = p.sizes[size] || {};
+      const opts = Object.keys(optMap);
+      const optSel = document.getElementById('qOpt');
+      optSel.innerHTML = opts.map(o => `<option value="${esc(o)}">${esc(cleanOptionLabel(o))}</option>`).join('');
+      refreshQty();
+    }
+    function refreshQty(){
+      const size = sizeSel.value;
+      const optSel = document.getElementById('qOpt');
+      const opt = optSel.value;
+      const rows = ((p.sizes[size] || {})[opt] || []).slice().sort((a,b) => a[0]-b[0]);
+      const qtySel = document.getElementById('qQty');
+      qtySel.innerHTML = rows.map(r => `<option value="${r[0]}">${r[0].toLocaleString()}</option>`).join('') + '<option value="custom">Custom quantity…</option>';
+    }
+    sizeSel.onchange = refreshOpts;
+    document.getElementById('qOpt') && (document.getElementById('qOpt').onchange = refreshQty);
+    refreshOpts();
+    wrap.addEventListener('change', (e) => { if (e.target.id === 'qOpt') refreshQty(); });
+  }
+
+  function handleProductInput(){
+    const typed = document.getElementById('qProduct').value.trim();
+    const slug = nameToSlug[typed] || null;
+    renderSpecs(slug);
+  }
+  document.getElementById('qProduct').addEventListener('input', handleProductInput);
+  if (initialSlug) renderSpecs(initialSlug);
+
   document.getElementById('quoteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const submitBtn = e.target.querySelector('button[type="submit"]');
     const productName = document.getElementById('qProduct').value.trim();
+    const sizeEl = document.getElementById('qSize'), optEl = document.getElementById('qOpt'), qtyEl = document.getElementById('qQty');
+    const specBits = [];
+    if (sizeEl) specBits.push('Size: ' + sizeEl.value);
+    if (optEl) specBits.push('Options: ' + cleanOptionLabel(optEl.value));
+    if (qtyEl) specBits.push('Quantity: ' + (qtyEl.value === 'custom' ? 'custom (see notes)' : Number(qtyEl.value).toLocaleString()));
+    const notes = document.getElementById('qMessage').value.trim();
+    const fullMessage = [specBits.join(' · '), notes].filter(Boolean).join('\n');
     const q = {
       company: document.getElementById('qCompany').value,
       name: document.getElementById('qName').value,
       email: document.getElementById('qEmail').value,
       whatsapp: document.getElementById('qWhatsapp').value,
       orderNumber: document.getElementById('qOrder').value,
-      message: document.getElementById('qMessage').value,
-      product: productName || (product ? product.name : null)
+      message: fullMessage,
+      product: productName || null
     };
     submitBtn.disabled = true;
     try {
