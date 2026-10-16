@@ -754,27 +754,25 @@ async function renderOrders(){
 function renderQuote(productSlug){
   const view = document.getElementById('view');
   const product = productSlug && DATA[productSlug] ? DATA[productSlug] : null;
-  const prefillMsg = product ? `I'd like a quote for: ${product.name}` : '';
+  const allProducts = Object.values(DATA).map(p => p.name).sort((a,b) => a.localeCompare(b));
+  const productOptions = allProducts.map(n => `<option value="${esc(n)}">`).join('');
   view.innerHTML = `<div class="wrap">
     <div class="breadcrumbs"><a href="#home" data-link>Home</a>　›　Request a Quote</div>
-    <div class="section-heading left" style="padding-top:4px;"><div><span class="eyebrow">LET'S TALK</span><h1>Request a Quote</h1><p>Tell us what you need and we'll get back to you.</p></div></div>
+    <div class="section-heading left" style="padding-top:4px;"><div><span class="eyebrow">LET'S TALK</span><h1>Request a Quote</h1><p>Most prices are already live on the product page — request a quote for bulk pricing, a custom spec, or anything our calculator doesn't cover.</p></div></div>
     <div class="checkout-layout" style="grid-template-columns:1fr;max-width:620px;">
       <form id="quoteForm" class="panel">
+        <label>Which product? <span style="font-weight:400;color:var(--muted);">(search to find it)</span>
+          <input id="qProduct" list="qProductList" required placeholder="Start typing a product name…" value="${product ? esc(product.name) : ''}" autocomplete="off">
+          <datalist id="qProductList">${productOptions}</datalist>
+        </label>
         <label>Company<input id="qCompany" placeholder="Your company (optional)"></label>
         <label>Full Name<input id="qName" required placeholder="Your name"></label>
         <label>Email ID<input id="qEmail" type="email" required placeholder="you@example.com"></label>
         <label>WhatsApp Number<input id="qWhatsapp" type="tel" placeholder="+91 ..."></label>
-        <label>Department<select id="qDept">
-          <option value="">Select Department</option>
-          <option value="Sales">Sales</option>
-          <option value="Graphic Design">Graphic Design</option>
-          <option value="Customer Assistance">Customer Assistance</option>
-          <option value="Direct Mailing Question">Direct Mailing Question</option>
-          <option value="Testimonials">Testimonials</option>
-          <option value="Request Reorder">Request Reorder</option>
-        </select></label>
         <label>Order Number<input id="qOrder" placeholder="If this relates to an existing order (optional)"></label>
-        <label>Message<textarea id="qMessage" required rows="4" placeholder="Tell us about your print job — product, size, quantity, timeline">${esc(prefillMsg)}</textarea></label>
+        <label>What exactly do you need? <span style="font-weight:400;color:var(--muted);">(size, quantity, finish, deadline — the more detail, the faster we can quote)</span>
+          <textarea id="qMessage" required rows="4" placeholder="e.g. 500 pcs, 3.5in x 2in, matte finish, need by 25th Oct"></textarea>
+        </label>
         <button class="button" style="width:100%;margin-top:18px;border-radius:8px;justify-content:center;" type="submit">Submit Quote Request</button>
         <p class="auth-note">We'll reply by email or WhatsApp, usually within one business day.</p>
       </form>
@@ -783,15 +781,15 @@ function renderQuote(productSlug){
   document.getElementById('quoteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const submitBtn = e.target.querySelector('button[type="submit"]');
+    const productName = document.getElementById('qProduct').value.trim();
     const q = {
       company: document.getElementById('qCompany').value,
       name: document.getElementById('qName').value,
       email: document.getElementById('qEmail').value,
       whatsapp: document.getElementById('qWhatsapp').value,
-      department: document.getElementById('qDept').value,
       orderNumber: document.getElementById('qOrder').value,
       message: document.getElementById('qMessage').value,
-      product: product ? product.name : null
+      product: productName || (product ? product.name : null)
     };
     submitBtn.disabled = true;
     try {
@@ -920,7 +918,7 @@ async function renderAdmin(){
     <td><select class="table-status" data-order="${esc(o.id)}">${['Received','Processing','Printed','Shipped','Completed','Cancelled'].map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
     <td>${existingJob ? `<span class="order-status">${esc(existingJob.stage)}</span>` : `<button class="button button-small btn-make-job" data-source-type="order" data-source-id="${esc(o.id)}" data-title="Order ${esc(o.id)}" data-customer="${esc(o.customer)}" data-price="${o.total}">Create Job</button>`}</td></tr>`; }).join('');
   const quoteRows = quotes.slice().reverse().map(q => { const existingJob = jobBySource['quote:' + q.id];
-    return `<tr><td><b>${esc(q.id)}</b></td><td>${esc(q.name)}<br><small>${esc(q.email)}</small></td><td>${esc(q.department||'—')}</td><td>${new Date(q.created_at).toLocaleDateString()}</td>
+    return `<tr><td><b>${esc(q.id)}</b></td><td>${esc(q.name)}<br><small>${esc(q.email)}</small></td><td>${esc(q.product||'—')}</td><td>${new Date(q.created_at).toLocaleDateString()}</td>
     <td><select class="table-qstatus" data-quote="${esc(q.id)}">${['New','In Progress','Quoted','Closed'].map(s => `<option ${q.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
     <td>${existingJob ? `<span class="order-status">${esc(existingJob.stage)}</span>` : `<button class="button button-small btn-make-job" data-source-type="quote" data-source-id="${esc(q.id)}" data-title="${esc(q.product || 'Quote ' + q.id)}" data-customer="${esc(q.name)}" data-email="${esc(q.email)}" data-price="0">Create Job</button>`}</td></tr>`; }).join('');
   const jobRows = jobOrders.map(j => { const costTotal = j.material_cost + j.labor_cost + j.overhead_cost; const margin = j.quoted_price - costTotal;
@@ -947,7 +945,7 @@ async function renderAdmin(){
     </div>
     <div class="panel" style="margin-bottom:20px;">
       <h2 style="font-size:17px;margin:0 0 12px;">Quote Requests</h2>
-      <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Contact</th><th>Department</th><th>Date</th><th>Status</th><th>Job</th></tr></thead><tbody>${quoteRows}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Quote</th><th>Contact</th><th>Product</th><th>Date</th><th>Status</th><th>Job</th></tr></thead><tbody>${quoteRows}</tbody></table></div>
       ${quotes.length ? '' : '<p class="auth-note">No quote requests yet.</p>'}
     </div>
     <div class="panel" style="margin-bottom:20px;">
