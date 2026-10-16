@@ -332,7 +332,7 @@ table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:mi
     </div>
     <div><b>Quick Links</b><a href="#home" data-link>Home</a><a href="#shop" data-link>Products</a><a href="#wishlist" data-link>Wishlist</a><a href="#cart" data-link>Cart</a></div>
     <div><b>Account</b><a href="#account" data-link>Login / Sign up</a><a href="#orders" data-link>My Orders</a><a href="#admin-login" data-link>Admin Dashboard</a></div>
-    <div><b>Our Products</b><div id="footCats"></div><b style="margin-top:18px;">Contact Us</b><p>☎ +91 98765 43210</p><p>✉ info@printhausindia.com</p></div>
+    <div><b>Our Products</b><div id="footCats"></div><b style="margin-top:18px;">Contact Us</b><p>☎ +91 98765 43210</p><p>✉ info@printhausindia.com</p><a href="#raise-issue" data-link style="display:block;margin-top:10px;">Raise an Issue</a></div>
   </div>
   <div class="copyright"><div class="wrap">© 2026 Print Haus. <span>Privacy Policy　 Terms of Service</span></div></div>
 </footer>
@@ -446,6 +446,7 @@ function router(){
   if (hash === 'admin-login') return renderAdminLogin();
   if (hash === 'admin') return renderAdmin();
   if (hash === 'quote' || hash.startsWith('quote-')) return renderQuote(hash.startsWith('quote-') ? hash.slice(6) : null);
+  if (hash === 'raise-issue') return renderRaiseIssue();
   if (hash.startsWith('cat-')) return renderCategory(hash.slice(4));
   if (hash.startsWith('product-')) return renderProduct(hash.slice(8));
   renderHome();
@@ -861,6 +862,79 @@ function renderQuote(productSlug){
   bindLinks();
 }
 
+function renderRaiseIssue(){
+  const view = document.getElementById('view');
+  const session = getSession();
+  view.innerHTML = `<div class="wrap">
+    <div class="breadcrumbs"><a href="#home" data-link>Home</a>　›　Raise an Issue</div>
+    <div class="section-heading left" style="padding-top:4px;"><div><span class="eyebrow">WE'RE HERE TO HELP</span><h1>Raise an Issue</h1><p>Tell us what went wrong with your order or our service and we'll get back to you as quickly as possible.</p></div></div>
+    <div class="checkout-layout" style="grid-template-columns:1fr;max-width:620px;">
+      <form id="issueForm" class="panel">
+        <label>Issue Type
+          <select id="isType" required>
+            <option value="" disabled selected>Select an issue type</option>
+            <option value="Order Issue">Order Issue</option>
+            <option value="Print Quality">Print Quality</option>
+            <option value="Delivery / Shipping">Delivery / Shipping</option>
+            <option value="Billing / Payment">Billing / Payment</option>
+            <option value="Account / Website">Account / Website</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label>Priority
+          <select id="isPriority" required>
+            <option value="" disabled selected>Select priority level</option>
+            <option value="Low">Low</option>
+            <option value="Medium">Medium</option>
+            <option value="High">High</option>
+            <option value="Urgent">Urgent</option>
+          </select>
+        </label>
+        <label>Order Number <span style="font-weight:400;color:var(--muted);">(if applicable)</span><input id="isOrder" placeholder="Enter your order number"></label>
+        <label>Issue Subject<input id="isSubject" required placeholder="Short description of the issue"></label>
+        <label>Detailed Description<textarea id="isDesc" required rows="4" placeholder="Please provide as much detail as possible, including what happened, expected outcome and any relevant information." maxlength="1000"></textarea></label>
+        <label>Full Name<input id="isName" required placeholder="Your name" value="${esc(session && session.name || '')}"></label>
+        <label>Email Address<input id="isEmail" type="email" required placeholder="you@company.com" value="${esc(session && session.email || '')}"></label>
+        <label>Phone Number <span style="font-weight:400;color:var(--muted);">(optional)</span><input id="isPhone" type="tel" placeholder="Enter your contact number"></label>
+        <label>Company Name <span style="font-weight:400;color:var(--muted);">(optional)</span><input id="isCompany" placeholder="Your company name"></label>
+        <button class="button" style="width:100%;margin-top:18px;border-radius:8px;justify-content:center;" type="submit">Raise Issue</button>
+        <p class="auth-note">We aim to reply within 24 hours, by email or WhatsApp.</p>
+      </form>
+    </div>
+  </div>`;
+
+  document.getElementById('issueForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const type = document.getElementById('isType').value;
+    const priority = document.getElementById('isPriority').value;
+    const subject = document.getElementById('isSubject').value.trim();
+    const desc = document.getElementById('isDesc').value.trim();
+    const fullMessage = `[Issue: ${type} · Priority: ${priority}]\n${subject}\n\n${desc}`;
+    const q = {
+      company: document.getElementById('isCompany').value,
+      name: document.getElementById('isName').value,
+      email: document.getElementById('isEmail').value,
+      whatsapp: document.getElementById('isPhone').value,
+      orderNumber: document.getElementById('isOrder').value,
+      message: fullMessage,
+      department: type,
+      product: null
+    };
+    submitBtn.disabled = true;
+    try {
+      await window.PFApi.submitQuote(q);
+      if (window.PFErp) window.PFErp.trySubmitQuote(q).catch(() => {});
+      notify('Issue raised. Our team will get back to you soon!');
+      location.hash = 'home';
+    } catch (err) {
+      notify('Couldn\'t submit your issue: ' + (err.message || 'please try again.'));
+      submitBtn.disabled = false;
+    }
+  });
+  bindLinks();
+}
+
 function renderCheckout(){
   const view = document.getElementById('view');
   const session = getSession();
@@ -972,7 +1046,8 @@ async function renderAdmin(){
     <td><select class="table-status" data-order="${esc(o.id)}">${['Received','Processing','Printed','Shipped','Completed','Cancelled'].map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
     <td>${existingJob ? `<span class="order-status">${esc(existingJob.stage)}</span>` : `<button class="button button-small btn-make-job" data-source-type="order" data-source-id="${esc(o.id)}" data-title="Order ${esc(o.id)}" data-customer="${esc(o.customer)}" data-price="${o.total}">Create Job</button>`}</td></tr>`; }).join('');
   const quoteRows = quotes.slice().reverse().map(q => { const existingJob = jobBySource['quote:' + q.id];
-    return `<tr><td><b>${esc(q.id)}</b></td><td>${esc(q.name)}<br><small>${esc(q.email)}</small></td><td>${esc(q.product||'—')}</td><td>${new Date(q.created_at).toLocaleDateString()}</td>
+    const label = q.product || (q.department ? ('⚑ ' + q.department) : '—');
+    return `<tr><td><b>${esc(q.id)}</b></td><td>${esc(q.name)}<br><small>${esc(q.email)}</small></td><td>${esc(label)}</td><td>${new Date(q.created_at).toLocaleDateString()}</td>
     <td><select class="table-qstatus" data-quote="${esc(q.id)}">${['New','In Progress','Quoted','Closed'].map(s => `<option ${q.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
     <td>${existingJob ? `<span class="order-status">${esc(existingJob.stage)}</span>` : `<button class="button button-small btn-make-job" data-source-type="quote" data-source-id="${esc(q.id)}" data-title="${esc(q.product || 'Quote ' + q.id)}" data-customer="${esc(q.name)}" data-email="${esc(q.email)}" data-price="0">Create Job</button>`}</td></tr>`; }).join('');
   const jobRows = jobOrders.map(j => { const costTotal = j.material_cost + j.labor_cost + j.overhead_cost; const margin = j.quoted_price - costTotal;
