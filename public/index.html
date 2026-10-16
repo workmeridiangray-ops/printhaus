@@ -37,6 +37,10 @@ button{font-family:inherit}
 .account-btn{width:auto;gap:7px;padding:0 4px 0 0;}
 .account-label{font-size:12.5px;font-weight:600;white-space:nowrap;}
 .account-btn.signed-in{color:var(--pink);}
+.account-drop .mega{left:auto;right:0;transform:none;}
+.account-menu.signed-out a:not(:first-child){display:none;}
+.account-menu.signed-out a:first-child{display:block;}
+@media(max-width:900px){.account-drop:hover .mega{display:none;}.account-drop.open .mega{display:grid;}}
 .account-btn.signed-in svg{fill:var(--pink);fill-opacity:0.12;}
 @media(max-width:650px){.account-label{display:none;}.account-btn{width:36px;padding:0;}}
 .nav-icon-btn:hover{color:var(--pink);}
@@ -332,14 +336,21 @@ table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:mi
   <a class="logo" href="#home" data-link><span class="logo-mark">P</span><span>Print<span class="dot">Haus</span><small>PRINT YOUR IDEAS</small></span></a>
   <button class="menu-toggle" aria-label="Toggle menu" id="menuToggle">☰</button>
   <nav class="navlinks" id="navLinks">
-    <a href="#home" data-link>Home</a>
     <div class="nav-cat-links" id="navCatLinks"></div>
-    <a href="#orders" data-link>My Orders</a>
     <a href="#about" data-link>About</a>
     <a href="#blog" data-link>Blog</a>
   </nav>
   <div class="nav-icons">
-    <a class="nav-icon-btn account-btn" href="#account" data-link aria-label="Account" id="accountIconBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span class="account-label" id="accountLabel">Login</span></a>
+    <div class="nav-drop account-drop">
+      <a class="nav-icon-btn account-btn" href="#account" data-link aria-label="Account" id="accountIconBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span class="account-label" id="accountLabel">Login</span></a>
+      <div class="mega account-menu" id="accountMenu">
+        <a href="#account" data-link id="accountMenuFirst">Edit Profile</a>
+        <a href="#orders" data-link>My Orders</a>
+        <a href="#raise-issue" data-link>Tickets</a>
+        <a href="#settings" data-link>Settings</a>
+        <a href="#" id="accountLogoutLink" style="display:none;">Log out</a>
+      </div>
+    </div>
     <a class="nav-icon-btn" href="#wishlist" data-link aria-label="Wishlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg><span class="badge-n" id="wishBadge" style="display:none">0</span></a>
     <a class="nav-icon-btn" href="#cart" data-link aria-label="Cart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg><span class="badge-n" id="cartBadge" style="display:none">0</span></a>
   </div>
@@ -428,13 +439,19 @@ function notify(msg){
 function syncAccountIcon(){
   const btn = document.getElementById('accountIconBtn');
   const label = document.getElementById('accountLabel');
+  const menu = document.getElementById('accountMenu');
+  const logoutLink = document.getElementById('accountLogoutLink');
   if (!btn) return;
   const session = getSession();
   btn.setAttribute('aria-label', session ? 'Account: ' + session.name : 'Sign in');
   btn.title = session ? 'Signed in as ' + session.name : 'Sign in';
   btn.classList.toggle('signed-in', !!session);
-  btn.setAttribute('href', session ? '#orders' : '#account');
+  btn.setAttribute('href', session ? '#account' : '#account');
   if (label) label.textContent = session ? session.name.split(' ')[0] : 'Login';
+  if (menu) menu.classList.toggle('signed-out', !session);
+  if (logoutLink) logoutLink.style.display = session ? '' : 'none';
+  const first = document.getElementById('accountMenuFirst');
+  if (first) first.textContent = session ? 'Edit Profile' : 'Login / Sign up';
 }
 
 async function loadData(){
@@ -452,6 +469,13 @@ async function loadData(){
   updateBadges();
   syncAccountIcon();
   document.getElementById('menuToggle').addEventListener('click', () => document.getElementById('navLinks').classList.toggle('open'));
+  document.getElementById('accountLogoutLink').addEventListener('click', async (e) => {
+    e.preventDefault();
+    await window.PFApi.logout();
+    syncAccountIcon();
+    notify('You have logged out.');
+    location.hash = 'home';
+  });
   document.getElementById('navCatLinks').addEventListener('click', (e) => {
     if (window.innerWidth > 650) return;
     const drop = e.target.closest('.nav-drop');
@@ -459,6 +483,15 @@ async function loadData(){
       e.preventDefault();
       drop.classList.toggle('open');
     }
+  });
+  document.getElementById('accountIconBtn').addEventListener('click', (e) => {
+    if (window.innerWidth > 900 || !getSession()) return; // desktop uses hover; signed-out goes straight to login
+    e.preventDefault();
+    document.querySelector('.account-drop').classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    const drop = document.querySelector('.account-drop');
+    if (drop && drop.classList.contains('open') && !drop.contains(e.target)) drop.classList.remove('open');
   });
   window.addEventListener('hashchange', router);
   router();
@@ -501,6 +534,7 @@ function router(){
   if (hash === 'admin') return renderAdmin();
   if (hash === 'quote' || hash.startsWith('quote-')) return renderQuote(hash.startsWith('quote-') ? hash.slice(6) : null);
   if (hash === 'raise-issue') return renderRaiseIssue();
+  if (hash === 'settings') return renderSettingsPage();
   if (hash === 'about') return renderAbout();
   if (hash === 'blog') return renderBlog();
   if (hash === 'shipping') return renderPolicy('shipping');
@@ -948,6 +982,36 @@ function renderQuote(productSlug){
       submitBtn.disabled = false;
     }
   });
+  bindLinks();
+}
+
+function renderSettingsPage(){
+  const view = document.getElementById('view');
+  const session = getSession();
+  if (!session){
+    view.innerHTML = `<div class="wrap auth-wrap"><div class="auth-card">
+      <h1>Settings</h1><p class="sub">Please log in to view your settings.</p>
+      <a class="button" style="width:100%;border-radius:8px;justify-content:center;" href="#account" data-link>Login / Sign up</a>
+    </div></div>`;
+    bindLinks();
+    return;
+  }
+  view.innerHTML = `<div class="wrap simple-page">
+    <h1>Settings</h1>
+    <p class="auth-note">Signed in as <b>${esc(session.name)}</b> (${esc(session.email)}).</p>
+    <div class="panel" style="max-width:480px;margin-top:18px;">
+      <label style="display:block;margin-bottom:14px;">Email notifications
+        <select id="setNotify" style="width:100%;margin-top:6px;">
+          <option value="all" selected>Order updates &amp; offers</option>
+          <option value="orders">Order updates only</option>
+          <option value="none">None</option>
+        </select>
+      </label>
+      <p class="auth-note" style="margin-bottom:16px;">More account settings are coming soon.</p>
+      <button class="button button-outline" id="settingsLogoutBtn" style="width:100%;border-radius:8px;justify-content:center;">Log out</button>
+    </div>
+  </div>`;
+  document.getElementById('settingsLogoutBtn').addEventListener('click', async () => { await window.PFApi.logout(); syncAccountIcon(); notify('You have logged out.'); location.hash = 'home'; });
   bindLinks();
 }
 
