@@ -148,12 +148,103 @@
     return data.events;
   }
 
+  async function adminFetchJobCard(id) {
+    return adminCall('/api/admin/job-orders/' + encodeURIComponent(id) + '/card');
+  }
+
+  // ---------- Order status (with tracking + email) ----------
+  async function adminSetOrderStatusFull(id, status, tracking, note) {
+    return adminCall('/api/admin/orders/' + encodeURIComponent(id), { method: 'PATCH', body: { status, tracking, note } });
+  }
+
+  async function fetchOrderEvents(id) {
+    const data = await call('/api/orders/' + encodeURIComponent(id) + '/events');
+    return data.events;
+  }
+
+  // ---------- Abandoned-cart sync ----------
+  async function syncCart(items) {
+    if (!getToken()) return; // only logged-in users are tracked
+    try { await call('/api/cart/sync', { method: 'POST', body: { items } }); } catch (e) {}
+  }
+
+  // ---------- Payments ----------
+  async function adminCreatePayment(orderId, kind, amount) {
+    return adminCall('/api/admin/payments', { method: 'POST', body: { orderId, kind, amount } });
+  }
+  async function adminFetchPayments() {
+    const data = await adminCall('/api/admin/payments');
+    return data.payments;
+  }
+  async function adminSetPaymentStatus(id, status) {
+    return adminCall('/api/admin/payments/' + encodeURIComponent(id), { method: 'PATCH', body: { status } });
+  }
+  async function payStub(id) {
+    return call('/api/pay-stub/' + encodeURIComponent(id), { method: 'POST' });
+  }
+
+  // ---------- Credit notes ----------
+  async function adminCreateCreditNote(body) {
+    return adminCall('/api/admin/credit-notes', { method: 'POST', body });
+  }
+  async function adminFetchCreditNotes() {
+    const data = await adminCall('/api/admin/credit-notes');
+    return data.creditNotes;
+  }
+  async function adminSetCreditNoteStatus(id, status) {
+    return adminCall('/api/admin/credit-notes/' + encodeURIComponent(id), { method: 'PATCH', body: { status } });
+  }
+
+  // ---------- Proof approval ----------
+  async function adminSendProofApproval(jobId, fileUrl) {
+    return adminCall('/api/admin/proof-approvals', { method: 'POST', body: { jobId, fileUrl } });
+  }
+  async function fetchProofApproval(token) {
+    const data = await call('/api/proof-approvals/' + encodeURIComponent(token));
+    return data.proof;
+  }
+  async function respondProofApproval(token, status, customerNote) {
+    return call('/api/proof-approvals/' + encodeURIComponent(token), { method: 'PATCH', body: { status, customerNote } });
+  }
+
+  // ---------- Margin report ----------
+  async function adminFetchMarginReport() {
+    return adminCall('/api/admin/reports/margin');
+  }
+
+  // ---------- Settings ----------
+  async function adminFetchSettings() {
+    const data = await adminCall('/api/admin/settings');
+    return data.settings;
+  }
+  async function adminUpdateSettings(patch) {
+    return adminCall('/api/admin/settings', { method: 'PATCH', body: patch });
+  }
+
+  // ---------- Backup ----------
+  async function adminFetchBackup() {
+    return adminCall('/api/admin/backup');
+  }
+
+  // ---------- Activity log ----------
+  async function adminFetchActivity() {
+    const data = await adminCall('/api/admin/activity');
+    return data.activity;
+  }
+
   global.PFApi = {
     getSession, signup, login, logout,
-    placeOrder, fetchOrders,
+    placeOrder, fetchOrders, fetchOrderEvents,
     submitQuote,
     getAdminKey, setAdminKey,
-    adminFetchOrders, adminFetchQuotes, adminSetOrderStatus, adminSetQuoteStatus,
-    adminFetchJobOrders, adminCreateJobOrder, adminUpdateJobOrder, adminFetchJobOrderEvents
+    adminFetchOrders, adminFetchQuotes, adminSetOrderStatus, adminSetOrderStatusFull, adminSetQuoteStatus,
+    adminFetchJobOrders, adminCreateJobOrder, adminUpdateJobOrder, adminFetchJobOrderEvents, adminFetchJobCard,
+    syncCart,
+    adminCreatePayment, adminFetchPayments, adminSetPaymentStatus, payStub,
+    adminCreateCreditNote, adminFetchCreditNotes, adminSetCreditNoteStatus,
+    adminSendProofApproval, fetchProofApproval, respondProofApproval,
+    adminFetchMarginReport,
+    adminFetchSettings, adminUpdateSettings,
+    adminFetchBackup, adminFetchActivity
   };
 })(window);

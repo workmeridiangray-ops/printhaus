@@ -11,3 +11,8 @@ binding = "ASSETS"
 binding = "DB"
 database_name = "printhaus"
 database_id = "a6ce98e0-f17d-4d52-b2e3-9d39e21a9f8a"
+
+# Runs scheduled() hourly — sweeps abandoned carts (1hr/24hr reminders)
+# and overdue payment reminders. See src/worker.js scheduled().
+[triggers]
+crons = ["0 * * * *"]

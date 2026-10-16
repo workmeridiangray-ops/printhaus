@@ -384,9 +384,18 @@ function toggleWishlist(slug){
   return w.includes(slug);
 }
 function getCart(){ return lsGet('pf_cart', []); }
-function addToCart(item){ const cart = getCart(); cart.push(item); lsSet('pf_cart', cart); updateBadges(); }
-function removeFromCartAt(idx){ const cart = getCart(); cart.splice(idx,1); lsSet('pf_cart', cart); updateBadges(); renderCart(); }
-function updateCartQtyAt(idx, qty){ const cart = getCart(); if (cart[idx]){ cart[idx].qty = Math.max(1,qty); lsSet('pf_cart', cart); } updateBadges(); renderCart(); }
+function addToCart(item){ const cart = getCart(); cart.push(item); lsSet('pf_cart', cart); updateBadges(); syncCartDebounced(); }
+function removeFromCartAt(idx){ const cart = getCart(); cart.splice(idx,1); lsSet('pf_cart', cart); updateBadges(); renderCart(); syncCartDebounced(); }
+function updateCartQtyAt(idx, qty){ const cart = getCart(); if (cart[idx]){ cart[idx].qty = Math.max(1,qty); lsSet('pf_cart', cart); } updateBadges(); renderCart(); syncCartDebounced(); }
+
+// Abandoned-cart tracking: pushes the cart contents to the backend
+// (only while logged in) so the hourly cron can send 1hr/24hr reminder
+// emails. Debounced so rapid qty edits don't spam the API.
+let _cartSyncTimer = null;
+function syncCartDebounced(){
+  clearTimeout(_cartSyncTimer);
+  _cartSyncTimer = setTimeout(() => { window.PFApi && window.PFApi.syncCart(getCart()); }, 1200);
+}
 function updateBadges(){
   const w = getWishlist().length;
   const c = getCart().reduce((s,i) => s + (i.qty||1), 0);
@@ -492,6 +501,7 @@ function router(){
   if (hash === 'shipping') return renderPolicy('shipping');
   if (hash === 'terms') return renderPolicy('terms');
   if (hash === 'privacy') return renderPolicy('privacy');
+  if (hash.startsWith('proof-')) return renderProofApproval(hash.slice(6));
   if (hash.startsWith('cat-')) return renderCategory(hash.slice(4));
   if (hash.startsWith('product-')) return renderProduct(hash.slice(8));
   renderHome();
@@ -1105,6 +1115,46 @@ function renderPolicy(key){
   bindLinks();
 }
 
+async function renderProofApproval(token){
+  const view = document.getElementById('view');
+  view.innerHTML = `<div class="wrap"><p class="auth-note">Loading proof…</p></div>`;
+  let proof;
+  try { proof = await window.PFApi.fetchProofApproval(token); }
+  catch (err) { view.innerHTML = `<div class="wrap"><p class="auth-note">This proof link isn't valid or has expired.</p></div>`; return; }
+  const already = proof.status !== 'Pending';
+  view.innerHTML = `<div class="wrap">
+    <div class="section-heading left" style="padding-top:28px;"><div><span class="eyebrow">ARTWORK PROOF</span><h1>${esc(proof.title)}</h1><p>Hi ${esc(proof.customer_name||'')}, please review your artwork before we move to print.</p></div></div>
+    <div class="checkout-layout" style="grid-template-columns:1fr;max-width:620px;">
+      <div class="panel">
+        ${proof.file_url ? `<p><a href="${esc(proof.file_url)}" target="_blank" rel="noopener" style="color:var(--pink-deep);font-weight:600;">View artwork file →</a></p>` : '<p class="auth-note">No file link was attached — contact us if you were expecting one.</p>'}
+        ${already
+          ? `<p style="margin-top:14px;"><b>Status:</b> ${esc(proof.status)}${proof.customer_note ? '<br><b>Note:</b> ' + esc(proof.customer_note) : ''}</p>`
+          : `<form id="proofForm" style="margin-top:14px;">
+               <label>Notes <span style="font-weight:400;color:var(--muted);">(optional — required if requesting changes)</span><textarea id="proofNote" rows="3" placeholder="Let us know what needs to change…"></textarea></label>
+               <div style="display:flex;gap:10px;margin-top:14px;">
+                 <button type="button" class="button" id="proofApprove" style="flex:1;justify-content:center;">Approve — Start Printing</button>
+                 <button type="button" class="button button-outline" id="proofReject" style="flex:1;justify-content:center;">Request Changes</button>
+               </div>
+             </form>`
+        }
+      </div>
+    </div>
+  </div>`;
+  if (!already){
+    document.getElementById('proofApprove').addEventListener('click', async () => {
+      try { await window.PFApi.respondProofApproval(token, 'Approved', document.getElementById('proofNote').value); notify('Thanks — approved! We\'ll start printing.'); renderProofApproval(token); }
+      catch (err) { notify('Couldn\'t submit: ' + err.message); }
+    });
+    document.getElementById('proofReject').addEventListener('click', async () => {
+      const note = document.getElementById('proofNote').value.trim();
+      if (!note){ notify('Please add a note describing what needs to change.'); return; }
+      try { await window.PFApi.respondProofApproval(token, 'Changes Requested', note); notify('Thanks — we\'ll make the changes and send a new proof.'); renderProofApproval(token); }
+      catch (err) { notify('Couldn\'t submit: ' + err.message); }
+    });
+  }
+  bindLinks();
+}
+
 function renderCheckout(){
   const view = document.getElementById('view');
   const session = getSession();
@@ -1196,9 +1246,12 @@ async function renderAdmin(){
   if (!adminUnlocked){ location.hash = 'admin-login'; return; }
   const view = document.getElementById('view');
   view.innerHTML = `<div class="wrap"><p class="auth-note">Loading dashboard…</p></div>`;
-  let orders = [], quotes = [], jobOrders = [];
+  let orders = [], quotes = [], jobOrders = [], payments = [], creditNotes = [], settings = null;
   try {
-    [orders, quotes, jobOrders] = await Promise.all([window.PFApi.adminFetchOrders(), window.PFApi.adminFetchQuotes(), window.PFApi.adminFetchJobOrders()]);
+    [orders, quotes, jobOrders, payments, creditNotes, settings] = await Promise.all([
+      window.PFApi.adminFetchOrders(), window.PFApi.adminFetchQuotes(), window.PFApi.adminFetchJobOrders(),
+      window.PFApi.adminFetchPayments(), window.PFApi.adminFetchCreditNotes(), window.PFApi.adminFetchSettings()
+    ]);
   } catch (err) {
     view.innerHTML = `<div class="wrap"><p class="auth-note">Couldn't load dashboard: ${esc(err.message)}</p></div>`;
     return;
@@ -1232,7 +1285,19 @@ async function renderAdmin(){
         <input type="number" step="0.01" class="job-cost-input" data-job="${esc(j.id)}" data-field="overheadCost" value="${j.overhead_cost}" title="Overhead" style="width:70px;">
       </td>
       <td>₹${j.quoted_price.toFixed(2)}<br><small style="color:${margin>=0?'var(--navy)':'#b33'};">margin ₹${margin.toFixed(2)}</small></td>
+      <td><button class="button button-small btn-job-card" data-job="${esc(j.id)}">Job Card</button> <button class="button button-small button-outline btn-send-proof" data-job="${esc(j.id)}">Send Proof</button></td>
     </tr>`; }).join('');
+  const paymentRows = payments.slice().reverse().map(p => `<tr>
+      <td><b>${esc(p.id)}</b></td><td>${esc(p.order_id)}</td><td>${esc(p.kind)}</td><td>₹${p.amount.toFixed(2)}</td>
+      <td><select class="payment-status" data-payment="${esc(p.id)}">${['Pending','Paid','Cancelled'].map(s => `<option ${p.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
+      <td><a href="${esc(p.pay_link||'#')}" target="_blank" rel="noopener">link</a></td>
+    </tr>`).join('');
+  const creditNoteRows = creditNotes.slice().reverse().map(c => `<tr>
+      <td><b>${esc(c.id)}</b></td><td>${esc(c.order_id)}</td><td>${esc(c.reason)}</td>
+      <td>₹${c.taxable_amount.toFixed(2)}<br><small>${c.gst_mode==='IGST' ? 'IGST ₹'+c.igst.toFixed(2) : 'CGST ₹'+c.cgst.toFixed(2)+' + SGST ₹'+c.sgst.toFixed(2)}</small></td>
+      <td><b>₹${c.total.toFixed(2)}</b></td>
+      <td><select class="cn-status" data-cn="${esc(c.id)}">${['Issued','Refunded'].map(s => `<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
+    </tr>`).join('');
   view.innerHTML = `<div class="wrap">
     <div class="admin-heading"><div><span class="eyebrow">STORE MANAGEMENT</span><h1>Admin Dashboard</h1><p class="sub" style="margin:0;">Live data from the Print Haus database.</p></div>
       <button class="button button-outline" id="adminLogout">Exit Admin</button></div>
@@ -1249,8 +1314,57 @@ async function renderAdmin(){
     </div>
     <div class="panel" style="margin-bottom:20px;">
       <h2 style="font-size:17px;margin:0 0 12px;">Job Orders <small style="font-weight:400;color:var(--muted);">— production tracking &amp; costing</small></h2>
-      <div class="table-wrap"><table><thead><tr><th>Job</th><th>Customer</th><th>Stage</th><th>Priority</th><th>Costs (material / labor / overhead)</th><th>Quoted / Margin</th></tr></thead><tbody>${jobRows}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>Job</th><th>Customer</th><th>Stage</th><th>Priority</th><th>Costs (material / labor / overhead)</th><th>Quoted / Margin</th><th>Tools</th></tr></thead><tbody>${jobRows}</tbody></table></div>
       ${jobOrders.length ? '' : '<p class="auth-note">No job orders yet. Click "Create Job" on an order or quote above to open one.</p>'}
+    </div>
+    <div class="panel" style="margin-bottom:20px;">
+      <h2 style="font-size:17px;margin:0 0 12px;">Payments <small style="font-weight:400;color:var(--muted);">— advance / balance, with pay-link reminders</small></h2>
+      <form id="paymentForm" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+        <label style="flex:1;min-width:140px;">Order ID<input id="payOrderId" required placeholder="PF-xxxxxxxx"></label>
+        <label style="width:120px;">Kind<select id="payKind"><option value="advance">Advance</option><option value="balance">Balance</option></select></label>
+        <label style="width:110px;">Amount (₹)<input id="payAmount" type="number" step="0.01" required></label>
+        <button class="button button-small" type="submit">Request Payment</button>
+      </form>
+      <p class="auth-note" style="text-align:left;margin:0 0 10px;">No payment gateway is connected yet — pay links are placeholders until Razorpay (or another gateway) keys are added.</p>
+      <div class="table-wrap"><table><thead><tr><th>Payment</th><th>Order</th><th>Kind</th><th>Amount</th><th>Status</th><th>Link</th></tr></thead><tbody>${paymentRows}</tbody></table></div>
+      ${payments.length ? '' : '<p class="auth-note">No payment requests yet.</p>'}
+    </div>
+    <div class="panel" style="margin-bottom:20px;">
+      <h2 style="font-size:17px;margin:0 0 12px;">Credit Notes / Refunds <small style="font-weight:400;color:var(--muted);">— GST reversed automatically</small></h2>
+      <form id="creditNoteForm" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+        <label style="flex:1;min-width:140px;">Order ID<input id="cnOrderId" required placeholder="PF-xxxxxxxx"></label>
+        <label style="flex:1;min-width:160px;">Reason<input id="cnReason" required placeholder="e.g. missed save7 discount"></label>
+        <label style="width:110px;">Amount excl. GST<input id="cnAmount" type="number" step="0.01" required></label>
+        <label style="width:120px;">GST Mode<select id="cnGstMode"><option value="CGST_SGST">CGST+SGST</option><option value="IGST">IGST</option></select></label>
+        <label style="width:80px;">Rate %<input id="cnGstRate" type="number" value="18"></label>
+        <button class="button button-small" type="submit">Issue Credit Note</button>
+      </form>
+      <div class="table-wrap"><table><thead><tr><th>Credit Note</th><th>Order</th><th>Reason</th><th>Taxable / GST</th><th>Total</th><th>Status</th></tr></thead><tbody>${creditNoteRows}</tbody></table></div>
+      ${creditNotes.length ? '' : '<p class="auth-note">No credit notes yet.</p>'}
+    </div>
+    <div class="panel" style="margin-bottom:20px;">
+      <h2 style="font-size:17px;margin:0 0 12px;">Margin Report</h2>
+      <div id="marginReportWrap"><p class="auth-note">Loading…</p></div>
+    </div>
+    <div class="panel" style="margin-bottom:20px;">
+      <h2 style="font-size:17px;margin:0 0 12px;">Settings &amp; Activity</h2>
+      <form id="settingsForm" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <label>Business Name<input id="setBusinessName" value="${esc(settings?.business_name||'')}"></label>
+        <label>GSTIN<input id="setGstin" value="${esc(settings?.gstin||'')}"></label>
+        <label style="grid-column:1/-1;">Address<input id="setAddress" value="${esc(settings?.address||'')}"></label>
+        <label>Logo URL<input id="setLogoUrl" value="${esc(settings?.logo_url||'')}"></label>
+        <label>Brand Color<input id="setBrandColor" type="color" value="${esc(settings?.brand_color||'#3c6b48')}"></label>
+        <label style="grid-column:1/-1;">Bank Details<input id="setBankDetails" value="${esc(settings?.bank_details||'')}"></label>
+        <label>Alert Email <span style="font-weight:400;color:var(--muted);">(uptime/health alerts)</span><input id="setAlertEmail" type="email" value="${esc(settings?.alert_email||'')}"></label>
+        <label>Default Material Cost % <span style="font-weight:400;color:var(--muted);">(used when a job has no cost entered)</span><input id="setCostPct" type="number" step="0.1" value="${settings?.default_cost_pct ?? 60}"></label>
+        <div style="grid-column:1/-1;"><button class="button button-small" type="submit">Save Settings</button></div>
+      </form>
+      <p class="auth-note" style="text-align:left;margin:10px 0 0;">Uptime monitor: point a free service (e.g. UptimeRobot) at <code>${esc(location.origin)}/api/health</code>.</p>
+      <h3 style="font-size:14px;margin:22px 0 10px;">Backup</h3>
+      <button class="button button-small button-outline" id="downloadBackup">Download Full Backup (JSON)</button>
+      <p class="auth-note" style="text-align:left;margin:10px 0 0;">D1 has no automatic scheduled backup reachable from the Worker — download this regularly and store it somewhere safe. Restoring from it isn't automated yet; it would need a manual import via wrangler.</p>
+      <h3 style="font-size:14px;margin:22px 0 10px;">Recent Activity</h3>
+      <div id="activityLogWrap"><p class="auth-note">Loading…</p></div>
     </div>
     <div class="panel">
       <h2 style="font-size:17px;margin:0 0 12px;">Product Catalog</h2>
@@ -1320,7 +1434,134 @@ async function renderAdmin(){
       catch (err) { notify('Couldn\'t update cost: ' + err.message); }
     });
   });
+
+  // ---------- Job card / proof approval ----------
+  document.querySelectorAll('.btn-job-card').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        const data = await window.PFApi.adminFetchJobCard(btn.dataset.job);
+        openJobCardWindow(data);
+      } catch (err) { notify('Couldn\'t load job card: ' + err.message); }
+    });
+  });
+  document.querySelectorAll('.btn-send-proof').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const fileUrl = prompt('Optional: paste a link to the artwork/proof file (or leave blank).') || '';
+      btn.disabled = true;
+      try {
+        const res = await window.PFApi.adminSendProofApproval(btn.dataset.job, fileUrl);
+        notify('Proof approval link sent to the customer.');
+      } catch (err) { notify('Couldn\'t send proof: ' + err.message); }
+      finally { btn.disabled = false; }
+    });
+  });
+
+  // ---------- Payments ----------
+  document.getElementById('paymentForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const orderId = document.getElementById('payOrderId').value.trim();
+    const kind = document.getElementById('payKind').value;
+    const amount = parseFloat(document.getElementById('payAmount').value);
+    try {
+      await window.PFApi.adminCreatePayment(orderId, kind, amount);
+      notify('Payment request sent.');
+      renderAdmin();
+    } catch (err) { notify('Couldn\'t create payment request: ' + err.message); }
+  });
+  document.querySelectorAll('.payment-status').forEach(sel => {
+    sel.addEventListener('change', async (e) => {
+      try { await window.PFApi.adminSetPaymentStatus(e.target.dataset.payment, e.target.value); notify('Payment status updated.'); }
+      catch (err) { notify('Couldn\'t update payment: ' + err.message); }
+    });
+  });
+
+  // ---------- Credit notes ----------
+  document.getElementById('creditNoteForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      orderId: document.getElementById('cnOrderId').value.trim(),
+      reason: document.getElementById('cnReason').value.trim(),
+      taxableAmount: parseFloat(document.getElementById('cnAmount').value),
+      gstMode: document.getElementById('cnGstMode').value,
+      gstRate: parseFloat(document.getElementById('cnGstRate').value) || 18
+    };
+    try {
+      await window.PFApi.adminCreateCreditNote(body);
+      notify('Credit note issued.');
+      renderAdmin();
+    } catch (err) { notify('Couldn\'t issue credit note: ' + err.message); }
+  });
+  document.querySelectorAll('.cn-status').forEach(sel => {
+    sel.addEventListener('change', async (e) => {
+      try { await window.PFApi.adminSetCreditNoteStatus(e.target.dataset.cn, e.target.value); notify('Credit note status updated.'); }
+      catch (err) { notify('Couldn\'t update credit note: ' + err.message); }
+    });
+  });
+
+  // ---------- Settings ----------
+  document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await window.PFApi.adminUpdateSettings({
+        businessName: document.getElementById('setBusinessName').value,
+        gstin: document.getElementById('setGstin').value,
+        address: document.getElementById('setAddress').value,
+        logoUrl: document.getElementById('setLogoUrl').value,
+        brandColor: document.getElementById('setBrandColor').value,
+        bankDetails: document.getElementById('setBankDetails').value,
+        alertEmail: document.getElementById('setAlertEmail').value,
+        defaultCostPct: parseFloat(document.getElementById('setCostPct').value) || 60
+      });
+      notify('Settings saved.');
+    } catch (err) { notify('Couldn\'t save settings: ' + err.message); }
+  });
+  document.getElementById('downloadBackup').addEventListener('click', async () => {
+    try {
+      const dump = await window.PFApi.adminFetchBackup();
+      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'printhaus-backup-' + new Date().toISOString().slice(0,10) + '.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      notify('Backup downloaded.');
+    } catch (err) { notify('Couldn\'t download backup: ' + err.message); }
+  });
+
+  // ---------- Margin report + activity log (loaded async, separate calls) ----------
+  window.PFApi.adminFetchMarginReport().then(({ jobs, totals }) => {
+    const wrap = document.getElementById('marginReportWrap');
+    if (!jobs.length) { wrap.innerHTML = '<p class="auth-note">No costed jobs yet.</p>'; return; }
+    const rows = jobs.map(j => `<tr><td><b>${esc(j.id)}</b><br><small>${esc(j.title)}</small></td><td>₹${j.quotedPrice.toFixed(2)}</td><td>₹${j.cost.toFixed(2)}${j.estimated ? ' <small>(estimated)</small>' : ''}</td><td style="color:${j.margin>=0?'var(--navy)':'#b33'};">₹${j.margin.toFixed(2)} (${j.marginPct}%)</td></tr>`).join('');
+    wrap.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Job</th><th>Revenue</th><th>Cost</th><th>Margin</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="auth-note" style="text-align:left;margin-top:10px;">Totals: revenue ₹${totals.revenue.toFixed(2)} · cost ₹${totals.cost.toFixed(2)} · margin ₹${totals.margin.toFixed(2)}</p>`;
+  }).catch(() => { document.getElementById('marginReportWrap').innerHTML = '<p class="auth-note">Couldn\'t load margin report.</p>'; });
+
+  window.PFApi.adminFetchActivity().then((activity) => {
+    const wrap = document.getElementById('activityLogWrap');
+    if (!activity.length) { wrap.innerHTML = '<p class="auth-note">No activity recorded yet.</p>'; return; }
+    wrap.innerHTML = activity.slice(0,30).map(a => `<p class="auth-note" style="text-align:left;margin:4px 0;"><b>${esc(a.action)}</b> ${esc(a.detail||'')} <small>— ${new Date(a.created_at).toLocaleString()}</small></p>`).join('');
+  }).catch(() => { document.getElementById('activityLogWrap').innerHTML = '<p class="auth-note">Couldn\'t load activity.</p>'; });
+
   bindLinks();
+}
+
+function openJobCardWindow(data){
+  const { job, events, business } = data;
+  const w = window.open('', '_blank');
+  if (!w) { notify('Please allow popups to view the job card.'); return; }
+  const eventRows = events.map(e => `<tr><td>${esc(e.stage)}</td><td>${esc(e.note||'')}</td><td>${new Date(e.created_at).toLocaleString()}</td></tr>`).join('');
+  w.document.write(`<!doctype html><html><head><title>Job Card ${esc(job.id)}</title><meta charset="utf-8">
+    <style>body{font-family:Arial,sans-serif;padding:30px;color:#222;}h1{font-size:20px;margin:0 0 4px;}table{width:100%;border-collapse:collapse;margin-top:14px;}td,th{border:1px solid #ccc;padding:6px 10px;text-align:left;font-size:13px;}.hdr{display:flex;justify-content:space-between;border-bottom:2px solid #222;padding-bottom:10px;margin-bottom:14px;}@media print{button{display:none;}}</style>
+    </head><body>
+    <div class="hdr"><div><h1>${esc(business?.business_name||'Print Haus')}</h1><small>${esc(business?.address||'')}</small>${business?.gstin ? '<br><small>GSTIN: '+esc(business.gstin)+'</small>' : ''}</div><div><h1>JOB CARD</h1><small>${esc(job.id)}</small></div></div>
+    <p><b>Title:</b> ${esc(job.title)}<br><b>Customer:</b> ${esc(job.customer_name||'—')}<br><b>Priority:</b> ${esc(job.priority)}<br><b>Due:</b> ${esc(job.due_date||'—')}<br><b>Stage:</b> ${esc(job.stage)}</p>
+    <p><b>Notes:</b> ${esc(job.notes||'—')}</p>
+    <h3>Production Log</h3>
+    <table><thead><tr><th>Stage</th><th>Note</th><th>Time</th></tr></thead><tbody>${eventRows}</tbody></table>
+    <button onclick="window.print()" style="margin-top:20px;padding:8px 16px;">Print</button>
+    </body></html>`);
+  w.document.close();
 }
 
 function relatedProducts(slug, p){

@@ -96,3 +96,114 @@ CREATE TABLE IF NOT EXISTS job_order_events (
 CREATE INDEX IF NOT EXISTS idx_joborders_stage  ON job_orders(stage);
 CREATE INDEX IF NOT EXISTS idx_joborders_source ON job_orders(source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_jobevents_job    ON job_order_events(job_id);
+
+-- ---------- Gap-closing modules (abandoned cart, order updates, payments,
+-- refunds/GST, job card [reuses job_orders], proof approval, margin report
+-- [reuses job_orders], settings, activity log) ----------
+
+-- Abandoned-cart tracking. The frontend pings this whenever a logged-in
+-- user's cart changes; the scheduled() cron sweeps it for 1hr/24hr reminders
+-- and marks reminded_1h / reminded_24h so each only fires once per cart.
+CREATE TABLE IF NOT EXISTS carts (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id),
+  items_json    TEXT NOT NULL,            -- snapshot of cart items at last update
+  status        TEXT NOT NULL DEFAULT 'Active',  -- Active / Reminded / Recovered / Abandoned
+  reminded_1h   INTEGER NOT NULL DEFAULT 0,
+  reminded_24h  INTEGER NOT NULL DEFAULT 0,
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Order status timeline + outbound email/notification log, so every
+-- "received / artwork approved / printing / shipped" message is both a
+-- record and a trigger (the cron / PATCH handler inserts a row here and
+-- sends the matching email in the same step).
+CREATE TABLE IF NOT EXISTS order_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id    TEXT NOT NULL REFERENCES orders(id),
+  status      TEXT NOT NULL,
+  tracking    TEXT,                       -- tracking number/link, set on "Shipped"
+  note        TEXT,
+  emailed     INTEGER NOT NULL DEFAULT 0, -- 1 once the notification email succeeded
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Payments: advance + balance + reminders. One row per payment event
+-- (advance request, advance paid, balance request, balance paid). The pay
+-- link is a stub (`pay_link`) until a gateway key is configured — see
+-- worker.js createPayLink().
+CREATE TABLE IF NOT EXISTS payments (
+  id            TEXT PRIMARY KEY,          -- e.g. PAY-xxxxxxxx
+  order_id      TEXT NOT NULL REFERENCES orders(id),
+  kind          TEXT NOT NULL,             -- 'advance' or 'balance'
+  amount        REAL NOT NULL,
+  pay_link      TEXT,
+  status        TEXT NOT NULL DEFAULT 'Pending',  -- Pending / Paid / Cancelled
+  reminded_at   TEXT,                       -- last reminder timestamp, for the reminder cron
+  paid_at       TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Credit notes / refunds, with GST reversed correctly (CGST+SGST for
+-- intra-state, IGST for inter-state — `gst_mode` picks which applies).
+CREATE TABLE IF NOT EXISTS credit_notes (
+  id          TEXT PRIMARY KEY,            -- e.g. CN-xxxxxxxx
+  order_id    TEXT NOT NULL REFERENCES orders(id),
+  reason      TEXT NOT NULL,
+  taxable_amount REAL NOT NULL,            -- refund amount excl. GST
+  gst_mode    TEXT NOT NULL DEFAULT 'CGST_SGST',  -- CGST_SGST or IGST
+  gst_rate    REAL NOT NULL DEFAULT 18,
+  cgst        REAL NOT NULL DEFAULT 0,
+  sgst        REAL NOT NULL DEFAULT 0,
+  igst        REAL NOT NULL DEFAULT 0,
+  total       REAL NOT NULL,               -- taxable_amount + gst
+  status      TEXT NOT NULL DEFAULT 'Issued',  -- Issued / Refunded
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Artwork proof approval: a public token-based link sent to the customer;
+-- they approve or request changes without needing an account.
+CREATE TABLE IF NOT EXISTS proof_approvals (
+  token         TEXT PRIMARY KEY,
+  job_id        TEXT NOT NULL REFERENCES job_orders(id),
+  file_url      TEXT,
+  status        TEXT NOT NULL DEFAULT 'Pending',  -- Pending / Approved / Changes Requested
+  customer_note TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  responded_at  TEXT
+);
+
+-- Business settings — single-row table (id always 1) covering the
+-- "setup page for new shops" item: name, GSTIN, address, logo, bank,
+-- colours, alert email, default material cost %.
+CREATE TABLE IF NOT EXISTS settings (
+  id                INTEGER PRIMARY KEY CHECK (id = 1),
+  business_name     TEXT NOT NULL DEFAULT 'Print Haus',
+  gstin             TEXT,
+  address           TEXT,
+  logo_url          TEXT,
+  bank_details       TEXT,
+  brand_color       TEXT DEFAULT '#3c6b48',
+  alert_email       TEXT,
+  default_cost_pct  REAL NOT NULL DEFAULT 60,   -- used by the margin report when a job has no cost entered
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT OR IGNORE INTO settings (id) VALUES (1);
+
+-- Admin activity log — covers "more staff roles + an activity log".
+CREATE TABLE IF NOT EXISTS activity_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor       TEXT,                        -- admin key label or staff email
+  action      TEXT NOT NULL,
+  detail      TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_carts_user          ON carts(user_id);
+CREATE INDEX IF NOT EXISTS idx_carts_status         ON carts(status);
+CREATE INDEX IF NOT EXISTS idx_orderevents_order    ON order_events(order_id);
+CREATE INDEX IF NOT EXISTS idx_payments_order       ON payments(order_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status      ON payments(status);
+CREATE INDEX IF NOT EXISTS idx_creditnotes_order    ON credit_notes(order_id);
+CREATE INDEX IF NOT EXISTS idx_proofapprovals_job   ON proof_approvals(job_id);
