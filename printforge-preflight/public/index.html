@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PrintForge Preflight</title>
+<style>
+  :root {
+    --bg: #faf9f7; --panel: #ffffff; --border: #e7e4de; --text: #1c1b19; --muted: #847f74;
+    --accent1: #ff8a3d; --accent2: #ff4d6d; --pass: #1f9d55; --fail: #e0364c; --warn: #c98a12;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 32px 24px 8px; text-align: center; }
+  header h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -0.02em; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+  .hidden { display: none !important; }
+
+  /* --- upload --- */
+  .dropzone { border: 2px dashed var(--border); border-radius: 12px; padding: 32px 16px; text-align: center; cursor: pointer; }
+  .dropzone.drag { border-color: var(--accent1); background: rgba(255, 138, 61, 0.06); }
+  .dropzone img { max-width: 100%; max-height: 160px; border-radius: 8px; margin-top: 10px; }
+  .dropzone p { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+  .filename { font-size: 13px; color: var(--muted); text-align: center; margin-top: 8px; }
+
+  /* --- category tabs + unit toggle --- */
+  .row-between { display: flex; align-items: center; justify-content: space-between; margin: 18px 0 10px; flex-wrap: wrap; gap: 8px; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tab { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-size: 13px; cursor: pointer; color: var(--text); }
+  .tab.active { background: linear-gradient(90deg, var(--accent1), var(--accent2)); color: #fff; border-color: transparent; font-weight: 600; }
+  .unit-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .unit-toggle button { border: none; background: #fff; padding: 6px 12px; font-size: 12px; cursor: pointer; color: var(--muted); }
+  .unit-toggle button.active { background: var(--text); color: #fff; }
+
+  .size-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .size-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px; cursor: pointer; background: #fff; }
+  .size-card:hover { border-color: var(--accent1); }
+  .size-card.selected { border-color: var(--accent1); background: rgba(255,138,61,0.07); box-shadow: 0 0 0 1px var(--accent1); }
+  .size-card .name { font-weight: 600; font-size: 14px; }
+  .size-card .dims { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .size-card .bleed { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* --- options step --- */
+  .opt-group { margin-bottom: 20px; }
+  .opt-group h4 { margin: 0 0 4px; font-size: 14px; }
+  .opt-group .sub { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+  .choice-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .choice-card { flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; background: #fff; }
+  .choice-card.selected { border-color: var(--accent1); background: rgba(255,138,61,0.07); box-shadow: 0 0 0 1px var(--accent1); }
+  .choice-card .name { font-weight: 600; font-size: 13px; }
+  .choice-card .desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .custom-bleed { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+  .custom-bleed input { width: 70px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); }
+
+  /* --- readiness --- */
+  .readiness-header { display: flex; align-items: center; justify-content: space-between; }
+  .readiness-header h3 { margin: 0; font-size: 15px; }
+  .readiness-status { font-size: 13px; font-weight: 600; }
+  .readiness-status.ready { color: var(--pass); }
+  .readiness-status.not-ready { color: var(--fail); }
+  .bar { height: 6px; border-radius: 999px; background: var(--border); margin: 10px 0 16px; overflow: hidden; }
+  .bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent1), var(--accent2)); }
+  .ritem { padding: 10px 0; border-top: 1px solid var(--border); }
+  .ritem:first-child { border-top: none; }
+  .ritem-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .ritem-label { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.fail { background: var(--fail); }
+  .dot.warn { background: var(--warn); }
+  .dot.pass { background: var(--pass); }
+  .ritem-value { font-size: 12px; font-weight: 700; }
+  .ritem-value.fail { color: var(--fail); } .ritem-value.warn { color: var(--warn); } .ritem-value.pass { color: var(--pass); }
+  .ritem-detail { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .ritem-fix { font-size: 12.5px; color: var(--pass); margin-top: 3px; }
+
+  button.primary, .btn { width: 100%; padding: 14px; border-radius: 10px; border: none; background: linear-gradient(90deg, var(--accent1), var(--accent2)); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; }
+  button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-secondary { background: #fff; color: var(--text); border: 1px solid var(--border); font-weight: 600; padding: 10px 16px; border-radius: 10px; cursor: pointer; font-size: 13px; width: auto; }
+
+  .checks { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .checks li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
+  .badge { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; margin-top: 1px; }
+  .badge.pass { background: rgba(31,157,85,0.12); color: var(--pass); }
+  .badge.fail { background: rgba(224,54,76,0.12); color: var(--fail); }
+  .pill { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+  .pill.pass { background: rgba(31,157,85,0.12); color: var(--pass); }
+  .pill.fail { background: rgba(224,54,76,0.12); color: var(--fail); }
+  .download-btn { display: block; text-align: center; text-decoration: none; margin-top: 16px; padding: 12px; border-radius: 10px; background: var(--text); color: #fff; font-weight: 700; font-size: 14px; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 10px; line-height: 1.6; }
+  .error { color: var(--fail); font-size: 13px; margin-top: 10px; }
+  .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff; display: inline-block; vertical-align: middle; margin-right: 8px; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .step-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .step-nav .title { font-size: 15px; font-weight: 700; }
+
+  /* --- top-level nav + tools --- */
+  .top-nav { display: flex; justify-content: center; gap: 8px; padding: 0 24px 18px; }
+  .top-nav button { padding: 9px 18px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text); }
+  .top-nav button.active { background: var(--text); color: #fff; border-color: var(--text); }
+  .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  .tool-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: #fff; }
+  .tool-card h3 { margin: 0 0 4px; font-size: 14px; }
+  .tool-card p { margin: 0 0 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .tool-card input[type=file] { font-size: 12px; margin-bottom: 8px; width: 100%; }
+  .tool-card .opt-row { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tool-card .opt-row button { flex: 1; min-width: 50px; padding: 6px 8px; font-size: 12px; border-radius: 8px; border: 1px solid var(--border); background: #fff; cursor: pointer; }
+  .tool-card .opt-row button.active { background: var(--text); color: #fff; }
+  .tool-card .run-btn { width: 100%; padding: 10px; border-radius: 8px; border: none; background: linear-gradient(90deg, var(--accent1), var(--accent2)); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; }
+  .tool-card .run-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .tool-result { margin-top: 10px; font-size: 12px; }
+  .tool-result img { max-width: 100%; border-radius: 8px; margin-top: 6px; border: 1px solid var(--border); }
+  .tool-result a { display: inline-block; margin-top: 6px; color: var(--accent2); font-weight: 600; text-decoration: none; }
+  .tool-result .err { color: var(--fail); }
+</style>
+</head>
+<body>
+<header>
+  <h1>PrintForge Preflight</h1>
+  <p>Drop an AI-generated image, get back a press-ready PDF/X-1a.</p>
+</header>
+
+<div class="top-nav">
+  <button id="navPdf" class="active">Print-Ready PDF</button>
+  <button id="navTools">Tools</button>
+</div>
+
+<main id="pdfFlow">
+
+  <!-- STEP 1: upload + format -->
+  <section class="panel" id="step1">
+    <div class="dropzone" id="dropzone">
+      <div id="dzContent">
+        <strong>Click or drop an image</strong>
+        <p>PNG, JPG, or WebP — you pick the size next</p>
+      </div>
+      <img id="preview" class="hidden" />
+    </div>
+    <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" class="hidden" />
+    <div class="filename hidden" id="filenameBox"></div>
+
+    <div id="formatPicker" class="hidden">
+      <div class="row-between">
+        <div class="tabs" id="categoryTabs"></div>
+        <div class="unit-toggle" id="unitToggle">
+          <button data-unit="metric">Metric</button>
+          <button data-unit="us">US / Imperial</button>
+        </div>
+      </div>
+      <div class="size-grid" id="sizeGrid"></div>
+    </div>
+
+    <button class="primary" id="toStep2Btn" disabled style="margin-top:18px">Choose an image first</button>
+  </section>
+
+  <!-- STEP 2: options + readiness -->
+  <section class="panel hidden" id="step2">
+    <div class="step-nav">
+      <button class="btn-secondary" id="backBtn">&larr; Back</button>
+      <span class="title" id="step2Title"></span>
+      <span></span>
+    </div>
+
+    <div class="opt-group">
+      <h4>Colour space</h4>
+      <p class="sub">Recommended for flyers, posters and leaflets</p>
+      <div class="choice-row" id="colourSpaceChoices">
+        <div class="choice-card selected" data-value="cmyk"><div class="name">CMYK</div><div class="desc">Ink-based. Required by print shops.</div></div>
+        <div class="choice-card" data-value="rgb"><div class="name">RGB</div><div class="desc">Screen-based. For on-screen use only.</div></div>
+      </div>
+    </div>
+
+    <div class="opt-group" id="profileGroup">
+      <h4>Colour profile</h4>
+      <div class="choice-row" id="profileChoices"></div>
+    </div>
+
+    <div class="opt-group">
+      <h4>Bleed style</h4>
+      <div class="choice-row" id="bleedStyleChoices"></div>
+    </div>
+
+    <div class="opt-group">
+      <h4>Bleed amount</h4>
+      <div class="choice-row" id="bleedAmountChoices">
+        <div class="choice-card" data-value="3"><div class="name">3 mm</div><div class="desc">UK / EU standard</div></div>
+        <div class="choice-card selected" data-value="auto"><div class="name" id="defaultBleedLabel">3.175 mm</div><div class="desc">Format default</div></div>
+        <div class="choice-card" data-value="custom"><div class="name">Custom</div><div class="desc"><input type="number" id="customBleedInput" placeholder="mm" style="width:60px;padding:4px;border-radius:6px;border:1px solid var(--border)" /></div></div>
+      </div>
+    </div>
+
+    <div class="opt-group" id="readinessBox">
+      <div class="readiness-header">
+        <h3>Print readiness</h3>
+        <span class="readiness-status" id="readinessStatus">Checking…</span>
+      </div>
+      <div class="bar"><div class="bar-fill" id="readinessBar" style="width:0%"></div></div>
+      <div id="readinessItems"></div>
+    </div>
+
+    <button class="primary" id="convertBtn">Make it press-ready</button>
+    <div id="errorBox2" class="error hidden"></div>
+  </section>
+
+  <!-- STEP 3: result -->
+  <section class="panel hidden" id="resultPanel">
+    <div class="result-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <h3 style="margin:0;font-size:15px;">Preflight report</h3>
+      <span id="resultPill" class="pill"></span>
+    </div>
+    <ul class="checks" id="checksList"></ul>
+    <div class="meta" id="metaBox"></div>
+    <a id="downloadLink" class="download-btn hidden" href="#" download>Download press-ready PDF</a>
+    <button class="btn-secondary" id="startOverBtn" style="margin-top:14px">Start over</button>
+  </section>
+
+</main>
+
+<main id="toolsFlow" class="hidden">
+  <section class="panel">
+    <div class="tool-grid">
+
+      <div class="tool-card">
+        <h3>Image Upscaler</h3>
+        <p>Real AI super-resolution (ESPCN) — recovers detail a plain resize can't, instead of just stretching pixels.</p>
+        <input type="file" id="upscaleFile" accept="image/png,image/jpeg,image/webp" />
+        <div class="opt-row">
+          <button data-scale="2" class="active">2x</button>
+          <button data-scale="4">4x</button>
+        </div>
+        <button class="run-btn" id="upscaleRun">Upscale</button>
+        <div class="tool-result" id="upscaleResult"></div>
+      </div>
+
+      <div class="tool-card">
+        <h3>Background Remover</h3>
+        <p>Cuts out the subject and gives you a transparent PNG.</p>
+        <input type="file" id="bgFile" accept="image/png,image/jpeg,image/webp" />
+        <button class="run-btn" id="bgRun">Remove background</button>
+        <div class="tool-result" id="bgResult"></div>
+      </div>
+
+      <div class="tool-card">
+        <h3>AI Vectorizer</h3>
+        <p>Traces your artwork into a multi-colour SVG (plus a PNG preview) — good for logos and flat artwork.</p>
+        <input type="file" id="vecFile" accept="image/png,image/jpeg,image/webp" />
+        <div class="opt-row">
+          <button data-colours="4">4 colours</button>
+          <button data-colours="6" class="active">6 colours</button>
+          <button data-colours="10">10 colours</button>
+        </div>
+        <button class="run-btn" id="vecRun">Vectorize</button>
+        <div class="tool-result" id="vecResult"></div>
+      </div>
+
+      <div class="tool-card">
+        <h3>DTF Halftone</h3>
+        <p>Splits your artwork into a halftone-screened colour film + a white underbase layer, for Direct-to-Film printing.</p>
+        <input type="file" id="dtfFile" accept="image/png,image/jpeg,image/webp" />
+        <button class="run-btn" id="dtfRun">Generate film + underbase</button>
+        <div class="tool-result" id="dtfResult"></div>
+      </div>
+
+      <div class="tool-card">
+        <h3>Sticker Cut-Out</h3>
+        <p>Traces your artwork's silhouette into a plotter-ready cut line (SVG), offset outward so the cut clears the print.</p>
+        <input type="file" id="cutFile" accept="image/png,image/webp" />
+        <div class="opt-row">
+          <button data-offset="1">1mm</button>
+          <button data-offset="2" class="active">2mm</button>
+          <button data-offset="3">3mm</button>
+        </div>
+        <button class="run-btn" id="cutRun">Build cut line</button>
+        <div class="tool-result" id="cutResult"></div>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<script>
+  let catalog = null;
+  let selectedFile = null;
+  let selectedCategory = null;
+  let selectedUnit = 'metric';
+  let selectedSize = null;
+  let selectedProfile = 'universal';
+  let selectedBleedStyle = 'artwork';
+  let readinessData = null;
+
+  const el = (id) => document.getElementById(id);
+
+  fetch('/api/categories').then(r => r.json()).then(data => {
+    catalog = data;
+    renderCategoryTabs();
+  });
+
+  // ---------- upload ----------
+  const dropzone = el('dropzone'), fileInput = el('fileInput'), preview = el('preview'), dzContent = el('dzContent');
+  dropzone.addEventListener('click', () => fileInput.click());
+  ['dragover','dragenter'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+  dropzone.addEventListener('drop', e => { if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
+  fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+  function handleFile(file) {
+    selectedFile = file;
+    preview.src = URL.createObjectURL(file);
+    preview.classList.remove('hidden');
+    dzContent.classList.add('hidden');
+    el('filenameBox').textContent = file.name;
+    el('filenameBox').classList.remove('hidden');
+    el('formatPicker').classList.remove('hidden');
+    updateStep1Button();
+  }
+
+  // ---------- category tabs + size grid ----------
+  function renderCategoryTabs() {
+    const tabsEl = el('categoryTabs');
+    tabsEl.innerHTML = catalog.categories.map((c, i) =>
+      `<button class="tab ${i === 0 ? 'active' : ''}" data-key="${c.key}">${c.label}</button>`
+    ).join('');
+    tabsEl.querySelectorAll('.tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabsEl.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        selectedCategory = btn.dataset.key;
+        selectedSize = null;
+        renderSizeGrid();
+      });
+    });
+    selectedCategory = catalog.categories[0].key;
+    renderSizeGrid();
+
+    el('unitToggle').querySelectorAll('button').forEach(b => {
+      b.addEventListener('click', () => {
+        selectedUnit = b.dataset.unit;
+        el('unitToggle').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+        renderSizeGrid();
+      });
+    });
+    el('unitToggle').querySelector('[data-unit="metric"]').classList.add('active');
+  }
+
+  function renderSizeGrid() {
+    const cat = catalog.categories.find(c => c.key === selectedCategory);
+    const grid = el('sizeGrid');
+    const systems = new Set(cat.sizes.map(s => s.system));
+    el('unitToggle').style.display = systems.size > 1 ? 'flex' : 'none';
+    const visible = systems.size > 1 ? cat.sizes.filter(s => s.system === selectedUnit) : cat.sizes;
+
+    grid.innerHTML = visible.map(s => `
+      <div class="size-card" data-key="${s.key}">
+        <div class="name">${s.label}</div>
+        <div class="dims">${s.system === 'us' ? (s.wMm/25.4).toFixed(2)+'×'+(s.hMm/25.4).toFixed(2)+' in' : s.wMm+'×'+s.hMm+' mm'}</div>
+        <div class="bleed">${s.bleedMm}mm bleed</div>
+      </div>
+    `).join('');
+    grid.querySelectorAll('.size-card').forEach(card => {
+      card.addEventListener('click', () => {
+        grid.querySelectorAll('.size-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedSize = card.dataset.key;
+        updateStep1Button();
+      });
+    });
+  }
+
+  function updateStep1Button() {
+    const btn = el('toStep2Btn');
+    if (selectedFile && selectedSize) {
+      btn.disabled = false;
+      btn.textContent = 'Continue';
+    } else if (!selectedFile) {
+      btn.disabled = true;
+      btn.textContent = 'Choose an image first';
+    } else {
+      btn.disabled = true;
+      btn.textContent = 'Select a format above';
+    }
+  }
+
+  el('toStep2Btn').addEventListener('click', () => goToStep2());
+
+  // ---------- step 2 ----------
+  function goToStep2() {
+    const cat = catalog.categories.find(c => c.key === selectedCategory);
+    const size = cat.sizes.find(s => s.key === selectedSize);
+    el('step2Title').textContent = `${cat.label} — ${size.label}`;
+    el('defaultBleedLabel').textContent = size.bleedMm + ' mm';
+
+    renderProfileChoices();
+    renderBleedStyleChoices();
+
+    el('step1').classList.add('hidden');
+    el('step2').classList.remove('hidden');
+    el('resultPanel').classList.add('hidden');
+
+    runAnalysis();
+  }
+
+  el('backBtn').addEventListener('click', () => {
+    el('step2').classList.add('hidden');
+    el('step1').classList.remove('hidden');
+  });
+
+  function renderProfileChoices() {
+    const wrap = el('profileChoices');
+    wrap.innerHTML = Object.values(catalog.colourProfiles).map(p => `
+      <div class="choice-card ${p.key === selectedProfile ? 'selected' : ''}" data-value="${p.key}">
+        <div class="name">${p.label}</div>
+        <div class="desc">${p.standard}${p.real ? '' : ' (uses Universal profile for now)'}</div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('.choice-card').forEach(c => c.addEventListener('click', () => {
+      wrap.querySelectorAll('.choice-card').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+      selectedProfile = c.dataset.value;
+    }));
+  }
+
+  function renderBleedStyleChoices() {
+    const wrap = el('bleedStyleChoices');
+    wrap.innerHTML = Object.values(catalog.bleedStyles).map(b => `
+      <div class="choice-card ${b.key === selectedBleedStyle ? 'selected' : ''}" data-value="${b.key}">
+        <div class="name">${b.label}</div>
+        <div class="desc">${b.description}</div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('.choice-card').forEach(c => c.addEventListener('click', () => {
+      wrap.querySelectorAll('.choice-card').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+      selectedBleedStyle = c.dataset.value;
+    }));
+  }
+
+  el('bleedAmountChoices').querySelectorAll('.choice-card').forEach(c => c.addEventListener('click', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    el('bleedAmountChoices').querySelectorAll('.choice-card').forEach(x => x.classList.remove('selected'));
+    c.classList.add('selected');
+  }));
+
+  function getSelectedBleedMm() {
+    const sel = el('bleedAmountChoices').querySelector('.choice-card.selected');
+    if (!sel) return undefined;
+    if (sel.dataset.value === 'auto') return undefined;
+    if (sel.dataset.value === 'custom') {
+      const v = parseFloat(el('customBleedInput').value);
+      return isNaN(v) ? undefined : v;
+    }
+    return parseFloat(sel.dataset.value);
+  }
+
+  // ---------- readiness analysis ----------
+  async function runAnalysis() {
+    el('readinessStatus').textContent = 'Checking…';
+    el('readinessItems').innerHTML = '';
+    const fd = new FormData();
+    fd.append('image', selectedFile);
+    fd.append('category', selectedCategory);
+    fd.append('size', selectedSize);
+    const res = await fetch('/api/analyze', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) { el('readinessStatus').textContent = 'Error'; return; }
+    readinessData = data;
+    renderReadiness(data);
+  }
+
+  function renderReadiness(data) {
+    const statusEl = el('readinessStatus');
+    statusEl.textContent = data.passed ? 'Ready' : `Not ready · ${data.toFix} to fix`;
+    statusEl.className = 'readiness-status ' + (data.passed ? 'ready' : 'not-ready');
+    const pct = Math.max(8, 100 - (data.toFix / data.items.length) * 100);
+    el('readinessBar').style.width = pct + '%';
+
+    el('readinessItems').innerHTML = data.items.map(item => `
+      <div class="ritem">
+        <div class="ritem-top">
+          <span class="ritem-label"><span class="dot ${item.status}"></span>${item.label}</span>
+          <span class="ritem-value ${item.status}">${item.value}</span>
+        </div>
+        <div class="ritem-detail">${item.detail}</div>
+        ${item.fix ? `<div class="ritem-fix">→ ${item.fix}</div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  // ---------- convert ----------
+  el('convertBtn').addEventListener('click', async () => {
+    const btn = el('convertBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Processing…';
+    el('errorBox2').classList.add('hidden');
+
+    const colourSpace = el('colourSpaceChoices').querySelector('.choice-card.selected').dataset.value;
+    const fd = new FormData();
+    fd.append('image', selectedFile);
+    fd.append('category', selectedCategory);
+    fd.append('size', selectedSize);
+    fd.append('colourProfile', selectedProfile);
+    fd.append('colourSpace', colourSpace);
+    fd.append('bleedStyle', selectedBleedStyle);
+    const bleedMm = getSelectedBleedMm();
+    if (bleedMm != null) fd.append('bleedMm', bleedMm);
+
+    try {
+      const res = await fetch('/api/convert', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Conversion failed.');
+      renderResult(data);
+    } catch (err) {
+      el('errorBox2').textContent = err.message;
+      el('errorBox2').classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Make it press-ready';
+    }
+  });
+
+  el('colourSpaceChoices').querySelectorAll('.choice-card').forEach(c => c.addEventListener('click', () => {
+    el('colourSpaceChoices').querySelectorAll('.choice-card').forEach(x => x.classList.remove('selected'));
+    c.classList.add('selected');
+  }));
+
+  function renderResult(data) {
+    el('step2').classList.add('hidden');
+    el('resultPanel').classList.remove('hidden');
+    const pill = el('resultPill');
+    pill.textContent = data.preflight.passed ? 'PASSED' : 'FAILED';
+    pill.className = 'pill ' + (data.preflight.passed ? 'pass' : 'fail');
+
+    el('checksList').innerHTML = data.preflight.checks.map(c => `
+      <li>
+        <span class="badge ${c.passed ? 'pass' : 'fail'}">${c.passed ? '✓' : '✕'}</span>
+        <span><strong>${c.name}</strong><br><span style="color:var(--muted)">${c.detail}</span></span>
+      </li>
+    `).join('');
+
+    el('metaBox').innerHTML = `
+      ${data.format.label} · ${data.format.trimWidthMm}×${data.format.trimHeightMm}mm + ${data.format.bleedMm}mm bleed<br>
+      Upscaled ${data.raster.sourceWidthPx}×${data.raster.sourceHeightPx}px → ${data.raster.widthPx}×${data.raster.heightPx}px
+      (${data.raster.upscaleFactor.toFixed(2)}×) at ${data.raster.dpi} DPI · Bleed style: ${data.raster.bleedStyle}<br>
+      Colour: ${data.colourSpace === 'rgb' ? 'RGB (screen-use file, not PDF/X-1a)' : `CMYK · ${data.profileUsed.label} (${data.profileUsed.standard})`}
+    `;
+
+    const dl = el('downloadLink');
+    dl.href = data.downloadUrl;
+    dl.classList.toggle('hidden', !data.preflight.passed);
+  }
+
+  el('startOverBtn').addEventListener('click', () => location.reload());
+
+  // ---------- top-level nav ----------
+  el('navPdf').addEventListener('click', () => {
+    el('navPdf').classList.add('active'); el('navTools').classList.remove('active');
+    el('pdfFlow').classList.remove('hidden'); el('toolsFlow').classList.add('hidden');
+  });
+  el('navTools').addEventListener('click', () => {
+    el('navTools').classList.add('active'); el('navPdf').classList.remove('active');
+    el('toolsFlow').classList.remove('hidden'); el('pdfFlow').classList.add('hidden');
+  });
+
+  // ---------- shared tool helpers ----------
+  function wireChoiceRow(cardId, attr) {
+    const card = document.querySelector(`#${cardId}`).closest('.tool-card');
+    let selected = card.querySelector('.opt-row button.active')?.dataset[attr];
+    card.querySelectorAll('.opt-row button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        card.querySelectorAll('.opt-row button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+    return () => card.querySelector('.opt-row button.active')?.dataset[attr];
+  }
+
+  async function runTool({ fileInputId, endpoint, extraFields, resultId, runBtnId, onSuccess }) {
+    const fileInput = el(fileInputId);
+    const resultEl = el(resultId);
+    const runBtn = el(runBtnId);
+    if (!fileInput.files.length) {
+      resultEl.innerHTML = '<span class="err">Choose an image first.</span>';
+      return;
+    }
+    const fd = new FormData();
+    fd.append('image', fileInput.files[0]);
+    if (extraFields) Object.entries(extraFields()).forEach(([k, v]) => fd.append(k, v));
+
+    runBtn.disabled = true;
+    const originalLabel = runBtn.textContent;
+    runBtn.innerHTML = '<span class="spinner"></span>Working…';
+    resultEl.innerHTML = '';
+
+    try {
+      const res = await fetch(endpoint, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Tool failed.');
+      onSuccess(data, resultEl);
+    } catch (err) {
+      resultEl.innerHTML = `<span class="err">${err.message}</span>`;
+    } finally {
+      runBtn.disabled = false;
+      runBtn.textContent = originalLabel;
+    }
+  }
+
+  // ---------- Upscaler ----------
+  const getUpscaleValue = wireChoiceRow('upscaleRun', 'scale');
+  el('upscaleRun').addEventListener('click', () => runTool({
+    fileInputId: 'upscaleFile', endpoint: '/api/tools/upscale', resultId: 'upscaleResult', runBtnId: 'upscaleRun',
+    extraFields: () => ({ scale: getUpscaleValue() || '2' }),
+    onSuccess: (data, resultEl) => {
+      resultEl.innerHTML = `${data.widthPx}×${data.heightPx}px (${data.scale}x)<br>
+        <img src="${data.downloadUrl}" /><br>
+        <a href="${data.downloadUrl}" download>Download upscaled PNG</a>`;
+    },
+  }));
+
+  // ---------- Background remover ----------
+  el('bgRun').addEventListener('click', () => runTool({
+    fileInputId: 'bgFile', endpoint: '/api/tools/remove-bg', resultId: 'bgResult', runBtnId: 'bgRun',
+    onSuccess: (data, resultEl) => {
+      resultEl.innerHTML = `<img src="${data.downloadUrl}" /><br>
+        <a href="${data.downloadUrl}" download>Download transparent PNG</a>`;
+    },
+  }));
+
+  // ---------- Vectorizer ----------
+  const getColoursValue = wireChoiceRow('vecRun', 'colours');
+  el('vecRun').addEventListener('click', () => runTool({
+    fileInputId: 'vecFile', endpoint: '/api/tools/vectorize', resultId: 'vecResult', runBtnId: 'vecRun',
+    extraFields: () => ({ colours: getColoursValue() || '6' }),
+    onSuccess: (data, resultEl) => {
+      resultEl.innerHTML = `${data.colours} colours traced<br>
+        <img src="${data.pngUrl}" /><br>
+        <a href="${data.svgUrl}" download>Download SVG</a> ·
+        <a href="${data.pngUrl}" download>Download PNG</a>`;
+    },
+  }));
+
+  // ---------- DTF halftone ----------
+  el('dtfRun').addEventListener('click', () => runTool({
+    fileInputId: 'dtfFile', endpoint: '/api/tools/dtf', resultId: 'dtfResult', runBtnId: 'dtfRun',
+    onSuccess: (data, resultEl) => {
+      resultEl.innerHTML = `Film layer:<br><img src="${data.filmUrl}" /><br>
+        <a href="${data.filmUrl}" download>Download film</a><br>
+        White underbase:<br><img src="${data.underbaseUrl}" /><br>
+        <a href="${data.underbaseUrl}" download>Download underbase</a>`;
+    },
+  }));
+
+  // ---------- Sticker cut-out ----------
+  const getOffsetValue = wireChoiceRow('cutRun', 'offset');
+  el('cutRun').addEventListener('click', () => runTool({
+    fileInputId: 'cutFile', endpoint: '/api/tools/sticker-cutline', resultId: 'cutResult', runBtnId: 'cutRun',
+    extraFields: () => ({ offsetMm: getOffsetValue() || '2' }),
+    onSuccess: (data, resultEl) => {
+      resultEl.innerHTML = `Cut line generated (magenta "CutContour" stroke)<br>
+        <a href="${data.svgUrl}" download>Download cut-line SVG</a>`;
+    },
+  }));
+</script>
+</body>
+</html>

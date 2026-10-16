@@ -1,0 +1,7 @@
+node_modules
+jobs
+test-output
+test-input
+screenshots
+*.log
+.git
