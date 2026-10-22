@@ -39,6 +39,7 @@
  *   -- Order lifecycle / abandoned cart --
  *   GET  /api/orders/:id/events  (auth) -> { events: [...] }   (status timeline for one order)
  *   POST /api/cart/sync          (auth) { items } -> { ok }    (debounced client-side ping; cron sweeps for reminders)
+ *   GET  /api/cart               (auth) -> { items, updatedAt } (last saved cart, any device — for cross-device restore)
  *   GET  /api/health             -> { ok, db, time }           (for an uptime monitor)
  *
  *   -- Payments (advance/balance — pay link is a stub until a gateway is configured) --
@@ -840,6 +841,22 @@ export default {
         return json({ ok: true });
       }
 
+      // Returns the signed-in user's saved cart (from the last cart/sync
+      // call, wherever it happened), so a reminder email opened on a
+      // different device/browser than the one that built the cart can
+      // actually restore it — previously the cart only ever lived in that
+      // one browser's localStorage, so a cross-device reminder link had
+      // nothing to show.
+      if (pathname === '/api/cart' && request.method === 'GET') {
+        const user = await getUserFromToken(db, bearerToken(request));
+        if (!user) return err('Not authenticated', 401);
+        const row = await db.prepare("SELECT items_json, updated_at FROM carts WHERE user_id = ? AND status IN ('Active','Reminded') ORDER BY id DESC LIMIT 1").bind(user.id).first();
+        if (!row) return json({ items: [], updatedAt: null });
+        let items = [];
+        try { items = JSON.parse(row.items_json) || []; } catch (e) {}
+        return json({ items, updatedAt: row.updated_at });
+      }
+
       // ---------- Payments (advance / balance, with stub pay-link) ----------
       if (pathname === '/api/admin/payments' && request.method === 'POST') {
         if (!adminOk) return err('Unauthorized', 401);
@@ -1186,8 +1203,13 @@ export default {
   async scheduled(event, env, ctx) {
     const db = env.DB;
 
-    // Abandoned carts
-    const carts = await db.prepare("SELECT * FROM carts WHERE status = 'Active'").all();
+    // Abandoned carts. Selects both 'Active' and 'Reminded' — the 1hr
+    // reminder below flips status to 'Reminded', so selecting only
+    // 'Active' meant the cart dropped out of this query right after its
+    // first email and the 24hr follow-up never fired. ('Recovered' carts —
+    // the user came back and we cleared the saved cart, see the cart/sync
+    // route — are correctly excluded either way.)
+    const carts = await db.prepare("SELECT * FROM carts WHERE status IN ('Active','Reminded')").all();
     const now = Date.now();
     for (const cart of carts.results) {
       const ageMs = now - new Date(cart.updated_at + 'Z').getTime();

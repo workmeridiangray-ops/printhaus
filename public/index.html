@@ -962,14 +962,31 @@ function renderWishlist(){
   bindLinks();
 }
 
-function renderCart(){
+async function renderCart(){
   const view = document.getElementById('view');
   const cart = getCart();
   if (!cart.length){
     view.innerHTML = `<div class="wrap simple-page"><h1>Your Cart</h1>
       <div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
-        <p>Your cart is empty.</p><a class="button button-small" href="#shop" data-link>Browse products</a></div></div>`;
-    bindLinks(); return;
+        <p>Your cart is empty.</p><a class="button button-small" href="#shop" data-link>Browse products</a>
+        <p id="restoreCartPrompt" style="margin-top:16px;"></p>
+      </div></div>`;
+    bindLinks();
+    // If a cart was saved server-side (e.g. built on another device, or
+    // from before an abandoned-cart reminder email), offer to restore it
+    // here rather than silently overwriting whatever's in this browser —
+    // this is what actually makes the reminder email's "View your cart"
+    // link work across devices instead of always landing on an empty cart.
+    if (getSession()){
+      const saved = await window.PFApi.fetchServerCart();
+      if (saved.items && saved.items.length){
+        const el = document.getElementById('restoreCartPrompt');
+        if (el) el.innerHTML = `<button class="button button-small button-outline" id="restoreCartBtn">Restore your saved cart (${saved.items.length} item${saved.items.length>1?'s':''})</button>`;
+        const btn = document.getElementById('restoreCartBtn');
+        if (btn) btn.onclick = () => { lsSet('pf_cart', saved.items); updateBadges(); renderCart(); };
+      }
+    }
+    return;
   }
   let subtotal = 0;
   const rows = cart.map((item, idx) => {

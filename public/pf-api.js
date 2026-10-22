@@ -179,6 +179,15 @@
     try { await call('/api/cart/sync', { method: 'POST', body: { items } }); } catch (e) {}
   }
 
+  // Fetches the signed-in user's cart as last saved server-side (by
+  // syncCart, from any device/browser). Used to restore a cart when the
+  // local one is empty — e.g. an abandoned-cart reminder email opened on a
+  // phone after the cart was built on a desktop.
+  async function fetchServerCart() {
+    if (!getToken()) return { items: [], updatedAt: null };
+    try { return await call('/api/cart'); } catch (e) { return { items: [], updatedAt: null }; }
+  }
+
   // ---------- Payments ----------
   async function adminCreatePayment(orderId, kind, amount) {
     return adminCall('/api/admin/payments', { method: 'POST', body: { orderId, kind, amount } });
@@ -286,6 +295,7 @@
     adminFetchMarginReport,
     adminFetchSettings, adminUpdateSettings,
     adminFetchBackup, adminFetchActivity,
-    uploadArtwork
+    uploadArtwork,
+    fetchServerCart
   };
 })(window);
