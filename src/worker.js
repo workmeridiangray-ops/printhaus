@@ -94,6 +94,10 @@
  * Orders. Server-side only — the browser never sees these credentials.
  * Without them, sync is silently skipped (erpConfigured() returns false).
  *
+ * Rate limiting: signup, login, quotes, proof-approval responses, and
+ * order creation are all limited via a simple D1-backed sliding window
+ * (see rateLimit()) — no extra Cloudflare product or config needed.
+ *
  * Cron: wrangler.toml's [triggers] runs scheduled() hourly, which sends
  * abandoned-cart (1hr/24hr) and overdue-payment reminder emails. This only
  * takes effect once deployed with `wrangler deploy` — it is not simulated
@@ -262,6 +266,33 @@ function isValidHttpUrl(s) {
   } catch (e) {
     return false;
   }
+}
+
+// ---------- Rate limiting ----------
+// Simple D1-backed sliding-window limiter. Not as cheap as Durable
+// Objects or Cloudflare's own rate-limiting rules, but needs no extra
+// product/billing setup and is plenty for the traffic a single print
+// shop's public endpoints see. Returns true if the request should be
+// BLOCKED (limit exceeded).
+//
+// bucket identifies what's being limited (route + client identity, e.g.
+// 'login:<ip>' or 'order:<userId>'). windowSeconds/maxHits define the
+// sliding window. Each call also opportunistically deletes hits older
+// than the window for this bucket, so the table self-prunes without a
+// separate cron.
+async function rateLimit(db, bucket, windowSeconds, maxHits) {
+  const since = new Date(Date.now() - windowSeconds * 1000).toISOString();
+  await db.prepare('DELETE FROM rate_limit_hits WHERE bucket = ? AND created_at < ?').bind(bucket, since).run();
+  const { count } = await db.prepare('SELECT COUNT(*) AS count FROM rate_limit_hits WHERE bucket = ? AND created_at >= ?').bind(bucket, since).first();
+  if (count >= maxHits) return true;
+  await db.prepare('INSERT INTO rate_limit_hits (bucket) VALUES (?)').bind(bucket).run();
+  return false;
+}
+
+// Cloudflare sets this on every request at the edge — the real client IP,
+// not spoofable via a regular header the way X-Forwarded-For would be.
+function clientIp(request) {
+  return request.headers.get('CF-Connecting-IP') || 'unknown';
 }
 
 async function hashPassword(password, saltB64) {
@@ -488,6 +519,7 @@ export default {
     try {
       // ---------- Auth ----------
       if (pathname === '/api/signup' && request.method === 'POST') {
+        if (await rateLimit(db, `signup:${clientIp(request)}`, 3600, 10)) return err('Too many signup attempts — please try again later.', 429);
         const { name, email, password } = await request.json();
         if (!name || !email || !password) return err('name, email, and password are required');
         if (!isValidEmail(email)) return err('Please enter a valid email address');
@@ -507,6 +539,8 @@ export default {
       }
 
       if (pathname === '/api/login' && request.method === 'POST') {
+        // Tighter than signup — login is the classic brute-force target.
+        if (await rateLimit(db, `login:${clientIp(request)}`, 600, 15)) return err('Too many login attempts — please wait a few minutes and try again.', 429);
         const { email, password } = await request.json();
         if (!email || !password) return err('email and password are required');
         const user = await db.prepare('SELECT id, name, email, password FROM users WHERE email = ?').bind(email).first();
@@ -533,6 +567,10 @@ export default {
       if (pathname === '/api/orders' && request.method === 'POST') {
         const user = await getUserFromToken(db, bearerToken(request));
         if (!user) return err('Not authenticated', 401);
+        // Per-user (not per-IP) — this is authenticated, and idempotency
+        // keys already collapse accidental double-submits (see below); this
+        // guards against a script placing many orders on one account.
+        if (await rateLimit(db, `order:${user.id}`, 600, 20)) return err('Too many orders placed recently — please wait a moment and try again.', 429);
         const body = await request.json();
         const { customer, phone, address, note, items } = body;
         if (!customer || !address || !Array.isArray(items) || !items.length) return err('customer, address, and items are required');
@@ -690,6 +728,7 @@ export default {
 
       // ---------- Quotes (no auth required — same as the old quote form) ----------
       if (pathname === '/api/quotes' && request.method === 'POST') {
+        if (await rateLimit(db, `quote:${clientIp(request)}`, 3600, 20)) return err('Too many quote requests — please try again later.', 429);
         const body = await request.json();
         const { company, name, email, whatsapp, department, orderNumber, message, product } = body;
         if (!name || !email || !message) return err('name, email, and message are required');
@@ -1002,6 +1041,10 @@ export default {
       }
 
       if (proofGetMatch && request.method === 'PATCH') {
+        // Guards against brute-forcing/guessing proof tokens and against a
+        // script hammering this endpoint, not against a real customer
+        // responding once — the limit is generous for that reason.
+        if (await rateLimit(db, `proof:${clientIp(request)}`, 600, 30)) return err('Too many requests — please wait a moment and try again.', 429);
         const { status, customerNote } = await request.json();
         if (!status || (status !== 'Approved' && status !== 'Changes Requested')) return err('status must be "Approved" or "Changes Requested"');
         const row = await db.prepare('SELECT token, job_id, status AS current_status, created_at FROM proof_approvals WHERE token = ?').bind(proofGetMatch[1]).first();

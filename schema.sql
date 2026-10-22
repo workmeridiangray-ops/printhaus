@@ -223,6 +223,15 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Simple D1-backed sliding-window rate limiter (see rateLimit() in
+-- worker.js). One row per request attempt on a limited route; old rows
+-- are pruned on each check so the table doesn't grow unbounded.
+CREATE TABLE IF NOT EXISTS rate_limit_hits (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  bucket      TEXT NOT NULL,     -- e.g. 'login:1.2.3.4'
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_carts_user          ON carts(user_id);
 CREATE INDEX IF NOT EXISTS idx_carts_status         ON carts(status);
 CREATE INDEX IF NOT EXISTS idx_orderevents_order    ON order_events(order_id);
@@ -231,3 +240,4 @@ CREATE INDEX IF NOT EXISTS idx_payments_status      ON payments(status);
 CREATE INDEX IF NOT EXISTS idx_creditnotes_order    ON credit_notes(order_id);
 CREATE INDEX IF NOT EXISTS idx_proofapprovals_job   ON proof_approvals(job_id);
 CREATE INDEX IF NOT EXISTS idx_idempotency_user     ON idempotency_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_ratelimit_bucket_time ON rate_limit_hits(bucket, created_at);
