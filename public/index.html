@@ -1020,7 +1020,7 @@ function renderAccount(){
       <label>Password<input id="authPassword" type="password" required minlength="4" placeholder="At least 4 characters"></label>
       <button class="button" id="authSubmit" style="width:100%;margin-top:18px;border-radius:8px;justify-content:center;" type="submit">Login</button>
     </form>
-    <p class="auth-note">Prototype only: credentials are stored in this browser and are not secure for real customers.</p>
+    <p class="auth-note">Passwords are hashed and stored server-side.</p>
   </div></div>`;
   function setMode(m){
     mode = m;

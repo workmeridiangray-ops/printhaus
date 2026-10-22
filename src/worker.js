@@ -234,6 +234,36 @@ function err(message, status = 400) {
   return json({ error: message }, status);
 }
 
+// HTML-escapes a value before it goes into an email's `html:` body. Names,
+// job titles, etc. are user/admin-supplied text, not markup — without this
+// a value containing "<" could break the email's HTML or (for the proof
+// email, where customer_name/title come from whoever created the job
+// order in the admin dashboard, not necessarily the recipient) inject
+// unexpected markup into another person's inbox.
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+// Deliberately permissive (not a full RFC 5322 validator — those are
+// notoriously easy to get wrong and reject valid addresses). Just enough
+// to catch obvious junk ("not an email") before it becomes a user record,
+// a quote, or an email-send target.
+function isValidEmail(s) {
+  return typeof s === 'string' && s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
+// Loose but useful: rejects obvious junk (empty, javascript:, data:) while
+// accepting http(s) URLs. Used for artwork links pasted by customers.
+function isValidHttpUrl(s) {
+  if (typeof s !== 'string' || !s) return true; // optional field — empty is fine
+  try {
+    const u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch (e) {
+    return false;
+  }
+}
+
 async function hashPassword(password, saltB64) {
   const enc = new TextEncoder();
   const salt = saltB64 ? Uint8Array.from(atob(saltB64), (c) => c.charCodeAt(0)) : crypto.getRandomValues(new Uint8Array(16));
@@ -401,7 +431,7 @@ async function logOrderEvent(db, env, orderId, status, tracking, note) {
   const result = await sendEmail(env, {
     to: user.email,
     subject: `${copy.subject} — Order ${orderId}`,
-    html: `<p>Hi ${user.name},</p><p>${copy.body}</p>${trackLine}<p>— Print Haus</p>`
+    html: `<p>Hi ${escHtml(user.name)},</p><p>${escHtml(copy.body)}</p>${trackLine}<p>— Print Haus</p>`
   });
   if (result.sent) {
     await db.prepare('UPDATE order_events SET emailed = 1 WHERE id = ?').bind(eventId).run();
@@ -460,6 +490,8 @@ export default {
       if (pathname === '/api/signup' && request.method === 'POST') {
         const { name, email, password } = await request.json();
         if (!name || !email || !password) return err('name, email, and password are required');
+        if (!isValidEmail(email)) return err('Please enter a valid email address');
+        if (password.length < 4) return err('Password must be at least 4 characters');
         const existing = await db.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
         if (existing) return err('An account with that email already exists', 409);
         const hashed = await hashPassword(password);
@@ -504,6 +536,9 @@ export default {
         const body = await request.json();
         const { customer, phone, address, note, items } = body;
         if (!customer || !address || !Array.isArray(items) || !items.length) return err('customer, address, and items are required');
+        if (String(customer).length > 200) return err('Name is too long');
+        if (String(address).length > 1000) return err('Address is too long');
+        if (note && String(note).length > 4000) return err('Order notes are too long (4000 characters max)');
 
         // Idempotency: the client sends a key (one per checkout attempt —
         // see pf-api.js placeOrder) in X-Idempotency-Key. A double-click,
@@ -658,6 +693,8 @@ export default {
         const body = await request.json();
         const { company, name, email, whatsapp, department, orderNumber, message, product } = body;
         if (!name || !email || !message) return err('name, email, and message are required');
+        if (!isValidEmail(email)) return err('Please enter a valid email address');
+        if (message.length > 4000) return err('Message is too long (4000 characters max)');
         const id = newId('Q');
         await db
           .prepare('INSERT INTO quotes (id, company, name, email, whatsapp, department, order_number, message, product) VALUES (?,?,?,?,?,?,?,?,?)')
@@ -781,7 +818,7 @@ export default {
             await sendEmail(env, {
               to: user.email,
               subject: `Payment request — Order ${orderId}`,
-              html: `<p>Hi ${user.name},</p><p>A ${kind} payment of ₹${amount} is due for your order ${orderId}.</p><p><a href="${payLink}">Pay now</a></p><p>— Print Haus</p>`
+              html: `<p>Hi ${escHtml(user.name)},</p><p>A ${escHtml(kind)} payment of ₹${amount} is due for your order ${escHtml(orderId)}.</p><p><a href="${escHtml(payLink)}">Pay now</a></p><p>— Print Haus</p>`
             });
           }
         }
@@ -950,7 +987,7 @@ export default {
           await sendEmail(env, {
             to: job.customer_email,
             subject: `Proof ready for approval — ${job.title}`,
-            html: `<p>Hi ${job.customer_name || ''},</p><p>Your artwork proof for "${job.title}" is ready. Please review and approve before we print.</p><p><a href="${link}">Review proof</a></p><p>— Print Haus</p>`
+            html: `<p>Hi ${escHtml(job.customer_name || '')},</p><p>Your artwork proof for "${escHtml(job.title)}" is ready. Please review and approve before we print.</p><p><a href="${escHtml(link)}">Review proof</a></p><p>— Print Haus</p>`
           });
         }
         await logActivity(db, 'admin', 'proof-sent', `${jobId}`);
@@ -1117,14 +1154,14 @@ export default {
         const r = await sendEmail(env, {
           to: user.email,
           subject: 'You left something in your cart',
-          html: `<p>Hi ${user.name},</p><p>You still have items waiting in your Print Haus cart. Come finish your order whenever you're ready.</p><p><a href="https://printhaus.work-meridiangray.workers.dev/#cart">View your cart</a></p>`
+          html: `<p>Hi ${escHtml(user.name)},</p><p>You still have items waiting in your Print Haus cart. Come finish your order whenever you're ready.</p><p><a href="https://printhaus.work-meridiangray.workers.dev/#cart">View your cart</a></p>`
         });
         if (r.sent) await db.prepare("UPDATE carts SET reminded_1h = 1, status = 'Reminded' WHERE id = ?").bind(cart.id).run();
       } else if (!cart.reminded_24h && ageMs >= 86400000) {
         const r = await sendEmail(env, {
           to: user.email,
           subject: 'Still thinking it over?',
-          html: `<p>Hi ${user.name},</p><p>Your cart is still saved — no minimum order quantity, and most orders dispatch within 3 days once you confirm.</p><p><a href="https://printhaus.work-meridiangray.workers.dev/#cart">Complete your order</a></p>`
+          html: `<p>Hi ${escHtml(user.name)},</p><p>Your cart is still saved — no minimum order quantity, and most orders dispatch within 3 days once you confirm.</p><p><a href="https://printhaus.work-meridiangray.workers.dev/#cart">Complete your order</a></p>`
         });
         if (r.sent) await db.prepare('UPDATE carts SET reminded_24h = 1 WHERE id = ?').bind(cart.id).run();
       }
@@ -1143,7 +1180,7 @@ export default {
       const r = await sendEmail(env, {
         to: user.email,
         subject: `Payment reminder — Order ${p.order_id}`,
-        html: `<p>Hi ${user.name},</p><p>A ${p.kind} payment of ₹${p.amount} is still pending for order ${p.order_id}.</p><p><a href="${p.pay_link}">Pay now</a></p>`
+        html: `<p>Hi ${escHtml(user.name)},</p><p>A ${escHtml(p.kind)} payment of ₹${p.amount} is still pending for order ${escHtml(p.order_id)}.</p><p><a href="${escHtml(p.pay_link)}">Pay now</a></p>`
       });
       if (r.sent) await db.prepare("UPDATE payments SET reminded_at = datetime('now') WHERE id = ?").bind(p.id).run();
     }
