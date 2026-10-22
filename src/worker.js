@@ -94,6 +94,72 @@
  */
 
 const PBKDF2_ITERATIONS = 100000;
+const GST_RATE = 0.18;
+
+// Mirrors index.html's cleanOptionLabel() exactly — the cart stores this
+// cleaned label as item.opt, not calc-data.json's raw "Select Shape: ... |
+// Quality: ... | Select Material: ..." key, so price recomputation has to
+// re-derive the same cleaned label from each raw key to find the match.
+function cleanOptionLabel(raw) {
+  if (raw === '(default)') return 'Standard';
+  return raw.split('|').map((seg) => {
+    const idx = seg.indexOf(':');
+    return (idx === -1 ? seg : seg.slice(idx + 1)).trim();
+  }).join(' · ');
+}
+
+let calcDataCache = null;
+async function getCalcData(env, request) {
+  if (calcDataCache) return calcDataCache;
+  if (!env.ASSETS) return null;
+  const res = await env.ASSETS.fetch(new URL('/calc-data.json', request.url));
+  if (!res.ok) return null;
+  calcDataCache = await res.json();
+  return calcDataCache;
+}
+
+// Recomputes a single cart item's price straight from the catalogue, so the
+// server never trusts a client-supplied unit price or subtotal. Returns
+// { unitPrice, lineTotal } or null if the item doesn't resolve to a real
+// catalogue row (unknown slug/size/option, or no pricing at that quantity).
+function priceItem(calcData, item) {
+  const p = calcData[item.slug];
+  if (!p) return null;
+  const optMap = p.sizes && p.sizes[item.size];
+  if (!optMap) return null;
+  const qty = Number(item.qty);
+  if (!Number.isFinite(qty) || qty <= 0) return null;
+
+  // Find the raw option key whose cleaned label matches what the cart sent.
+  const rawKey = Object.keys(optMap).find((k) => cleanOptionLabel(k) === item.opt);
+  if (!rawKey) return null;
+  const rows = optMap[rawKey];
+  const row = rows.find((r) => r[0] === qty);
+  if (!row) return null;
+
+  const [, unitPrice] = row;
+  return { unitPrice, lineTotal: +(unitPrice * qty).toFixed(2) };
+}
+
+// Recomputes the whole order from the catalogue. Throws (with a user-safe
+// message) if any item doesn't resolve — never silently falls back to the
+// client-supplied numbers.
+async function priceOrder(env, request, items) {
+  const calcData = await getCalcData(env, request);
+  if (!calcData) throw new Error('Pricing data is temporarily unavailable — please try again.');
+  let subtotal = 0;
+  const priced = [];
+  for (const item of items) {
+    const p = priceItem(calcData, item);
+    if (!p) throw new Error(`Could not verify the price for "${item.name || item.slug}" — please re-select it and try again.`);
+    subtotal += p.lineTotal;
+    priced.push({ ...item, unit: p.unitPrice });
+  }
+  subtotal = +subtotal.toFixed(2);
+  const gst = +(subtotal * GST_RATE).toFixed(2);
+  const total = +(subtotal + gst).toFixed(2);
+  return { items: priced, subtotal, gst, total };
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -289,20 +355,31 @@ export default {
         const user = await getUserFromToken(db, bearerToken(request));
         if (!user) return err('Not authenticated', 401);
         const body = await request.json();
-        const { customer, phone, address, note, items, subtotal, gst, total } = body;
+        const { customer, phone, address, note, items } = body;
         if (!customer || !address || !Array.isArray(items) || !items.length) return err('customer, address, and items are required');
+
+        // Prices, GST and total are never taken from the client — they are
+        // recomputed from the catalogue here so a tampered request body
+        // can't produce an order at an arbitrary price.
+        let priced;
+        try {
+          priced = await priceOrder(env, request, items);
+        } catch (e) {
+          return err(e.message, 422);
+        }
+
         const id = 'PF-' + Date.now().toString().slice(-8);
         await db
           .prepare('INSERT INTO orders (id, user_id, customer, phone, address, note, subtotal, gst, total, status) VALUES (?,?,?,?,?,?,?,?,?,?)')
-          .bind(id, user.id, customer, phone || '', address, note || '', subtotal, gst, total, 'Received')
+          .bind(id, user.id, customer, phone || '', address, note || '', priced.subtotal, priced.gst, priced.total, 'Received')
           .run();
-        for (const i of items) {
+        for (const i of priced.items) {
           await db
             .prepare('INSERT INTO order_items (order_id, slug, name, size, opt, qty, unit_price, artwork_key) VALUES (?,?,?,?,?,?,?,?)')
             .bind(id, i.slug, i.name, i.size || '', i.opt || '', i.qty, i.unit, i.artworkKey || null)
             .run();
         }
-        return json({ ok: true, order: { id } });
+        return json({ ok: true, order: { id, subtotal: priced.subtotal, gst: priced.gst, total: priced.total } });
       }
 
       if (pathname === '/api/orders' && request.method === 'GET') {
@@ -418,12 +495,14 @@ export default {
       }
 
       // ---------- Admin ----------
-      // Key check temporarily disabled: until ADMIN_KEY is set as a secret
-      // (`wrangler secret put ADMIN_KEY`), admin routes are open to anyone
-      // who reaches them. Re-enable by removing the `!env.ADMIN_KEY ||` once
-      // the secret is set.
+      // Every admin route requires the ADMIN_KEY secret to be set
+      // (`wrangler secret put ADMIN_KEY`) AND match the X-Admin-Key header.
+      // No ADMIN_KEY configured = no admin access, full stop — this used to
+      // fail open (!env.ADMIN_KEY || ...), which left every admin route,
+      // including the DB backup, open to anyone with the URL. Never revert
+      // to fail-open.
       const adminKey = request.headers.get('X-Admin-Key');
-      const adminOk = !env.ADMIN_KEY || adminKey === env.ADMIN_KEY;
+      const adminOk = !!env.ADMIN_KEY && adminKey === env.ADMIN_KEY;
 
       if (pathname === '/api/admin/orders' && request.method === 'GET') {
         if (!adminOk) return err('Unauthorized', 401);
@@ -533,11 +612,16 @@ export default {
         return json({ ok: true });
       }
 
-      // A customer or anyone with the pay-stub link can "pay" it here while
-      // no real gateway is configured — this exists purely so the advance/
-      // balance flow can be tested end-to-end (see createPayLink() above).
+      // DEV/TEST ONLY: lets the advance/balance flow be exercised end-to-end
+      // before a real payment gateway is wired up. Disabled in production
+      // by default — anyone with a payment ID could otherwise mark it Paid
+      // for free. Only enable by setting the ALLOW_PAY_STUB secret to "true"
+      // on a test deployment; never set it on the live site, and remove
+      // this route entirely once Razorpay (or another real gateway) is
+      // wired into createPayLink().
       const payStubMatch = pathname.match(/^\/api\/pay-stub\/([^/]+)$/);
       if (payStubMatch && request.method === 'POST') {
+        if (env.ALLOW_PAY_STUB !== 'true') return err('Payments are not configured yet. This order has not been charged.', 503);
         await db.prepare("UPDATE payments SET status = 'Paid', paid_at = datetime('now') WHERE id = ?").bind(payStubMatch[1]).run();
         return json({ ok: true, note: 'Stub payment recorded — no real gateway is connected yet.' });
       }
