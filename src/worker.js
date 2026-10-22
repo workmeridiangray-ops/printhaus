@@ -85,7 +85,14 @@
  * placeholder /pay-stub/:id link (see POST /api/pay-stub/:id) so the
  * advance/balance/reminder flow can be built and tested end-to-end. Wire a
  * real Razorpay (or other) integration into createPayLink() once keys are
- * available — see the TODO there.
+ * available — see the TODO there. The pay-stub route itself is disabled in
+ * production unless ALLOW_PAY_STUB=true is explicitly set (never set it on
+ * the live deployment) — see POST /api/pay-stub/:id below.
+ *
+ * ERPNext: set ERPNEXT_BASE_URL / ERPNEXT_API_KEY / ERPNEXT_API_SECRET
+ * secrets to sync quotes and orders into ERPNext as Quotations/Sales
+ * Orders. Server-side only — the browser never sees these credentials.
+ * Without them, sync is silently skipped (erpConfigured() returns false).
  *
  * Cron: wrangler.toml's [triggers] runs scheduled() hourly, which sends
  * abandoned-cart (1hr/24hr) and overdue-payment reminder emails. This only
@@ -304,6 +311,75 @@ async function sendEmail(env, { to, subject, html }) {
   }
 }
 
+// ---------- ERPNext integration (server-side) ----------
+// Replaces the old client-side erpnext-client.js design, which stored a
+// real ERPNext API key + secret in the browser's localStorage and sent
+// `Authorization: token <key>:<secret>` from the page itself — readable by
+// anyone with devtools access to that browser, or by any XSS on the page.
+// Configure with three secrets instead (all optional — if unset, ERPNext
+// sync is simply skipped, same graceful no-op behaviour as before):
+//   wrangler secret put ERPNEXT_BASE_URL     (e.g. https://your-site.frappe.cloud)
+//   wrangler secret put ERPNEXT_API_KEY
+//   wrangler secret put ERPNEXT_API_SECRET
+function erpConfigured(env) {
+  return !!(env.ERPNEXT_BASE_URL && env.ERPNEXT_API_KEY && env.ERPNEXT_API_SECRET);
+}
+
+async function erpRequest(env, method, path, body) {
+  const base = env.ERPNEXT_BASE_URL.replace(/\/+$/, '');
+  const res = await fetch(base + path, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `token ${env.ERPNEXT_API_KEY}:${env.ERPNEXT_API_SECRET}`
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await res.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { raw: text }; }
+  if (!res.ok) {
+    const msg = (data && (data.exception || data._server_messages)) || res.statusText;
+    throw new Error(`ERPNext API error (${res.status}): ${msg}`);
+  }
+  return data;
+}
+
+async function erpCreateQuotation(env, q) {
+  return erpRequest(env, 'POST', '/api/resource/Quotation', {
+    doctype: 'Quotation',
+    quotation_to: 'Customer',
+    party_name: q.company || q.name,
+    customer_name: q.name,
+    contact_email: q.email,
+    contact_mobile: q.whatsapp || '',
+    custom_department: q.department || '',
+    custom_related_order: q.orderNumber || '',
+    custom_product_of_interest: q.product || '',
+    custom_message: q.message || '',
+    items: q.product ? [{ item_code: q.product, qty: 1 }] : []
+  });
+}
+
+async function erpCreateSalesOrder(env, order, cartItems) {
+  return erpRequest(env, 'POST', '/api/resource/Sales Order', {
+    doctype: 'Sales Order',
+    customer: order.customer,
+    contact_email: order.email,
+    custom_phone: order.phone,
+    custom_delivery_address: order.address,
+    custom_order_notes: order.notes || '',
+    delivery_date: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+    items: cartItems.map((i) => ({
+      item_code: i.slug,
+      item_name: i.name,
+      description: [i.size, i.opt].filter(Boolean).join(' · '),
+      qty: i.qty,
+      rate: i.unit
+    }))
+  });
+}
+
 const ORDER_STATUS_COPY = {
   Received: { subject: 'Order received', body: "We've received your order and will begin production shortly." },
   'Artwork Approved': { subject: 'Artwork approved', body: 'Your artwork has been approved — moving to print.' },
@@ -477,6 +553,13 @@ export default {
         }
         await db.batch(statements);
 
+        // Best-effort ERPNext sync — server-side only, same as the quote
+        // route above. Never blocks or fails order placement.
+        if (erpConfigured(env)) {
+          erpCreateSalesOrder(env, { customer, email: user.email, phone, address, notes: note }, priced.items)
+            .catch((e) => console.warn('[ERPNext] Sales Order sync failed:', e.message));
+        }
+
         return json({ ok: true, order: { id, subtotal: priced.subtotal, gst: priced.gst, total: priced.total } });
       }
 
@@ -580,6 +663,12 @@ export default {
           .prepare('INSERT INTO quotes (id, company, name, email, whatsapp, department, order_number, message, product) VALUES (?,?,?,?,?,?,?,?,?)')
           .bind(id, company || '', name, email, whatsapp || '', department || '', orderNumber || '', message, product || null)
           .run();
+        // Best-effort ERPNext sync — server-side only (see erpConfigured()
+        // above); never blocks or fails the quote submission itself.
+        if (erpConfigured(env)) {
+          erpCreateQuotation(env, { company, name, email, whatsapp, department, orderNumber, message, product })
+            .catch((e) => console.warn('[ERPNext] Quotation sync failed:', e.message));
+        }
         return json({ ok: true, quote: { id } });
       }
 

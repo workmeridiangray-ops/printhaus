@@ -444,7 +444,6 @@ table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:mi
 </footer>
 
 <script src="pf-api.js"></script>
-<script src="erpnext-client.js"></script>
 <script>
 let DATA = null;
 let CATS = [];
@@ -1217,9 +1216,8 @@ function renderQuote(productSlug){
     submitBtn.disabled = true;
     try {
       await window.PFApi.submitQuote(q);
-      // Also try ERPNext, if this browser has been configured with
-      // PFErp.configure(...) — optional, see erpnext-client.js.
-      if (window.PFErp) window.PFErp.trySubmitQuote(q).catch(() => {});
+      // ERPNext sync (if configured) now happens server-side in worker.js —
+      // no client-side credential handling needed here anymore.
       notify('Quote request sent. We\'ll be in touch soon!');
       location.hash = 'home';
     } catch (err) {
@@ -1322,7 +1320,6 @@ function renderRaiseIssue(){
     submitBtn.disabled = true;
     try {
       await window.PFApi.submitQuote(q);
-      if (window.PFErp) window.PFErp.trySubmitQuote(q).catch(() => {});
       notify('Issue raised. Our team will get back to you soon!');
       location.hash = 'home';
     } catch (err) {
@@ -1545,9 +1542,8 @@ function renderCheckout(){
     submitBtn.disabled = true;
     try {
       const res = await window.PFApi.placeOrder(order);
-      // Also try creating a real ERPNext Sales Order, if this browser has
-      // been configured with PFErp.configure(...) — optional, see erpnext-client.js.
-      if (window.PFErp) window.PFErp.trySubmitOrder({ ...order, email: session.email }, cart).catch(() => {});
+      // ERPNext sync (if configured) now happens server-side in worker.js —
+      // no client-side credential handling needed here anymore.
       lsSet('pf_cart', []); updateBadges();
       notify('Order placed: ' + res.order.id);
       location.hash = 'orders';
