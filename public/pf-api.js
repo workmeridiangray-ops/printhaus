@@ -237,6 +237,35 @@
     return data.activity;
   }
 
+  // ---------- Artwork uploads (R2-backed) ----------
+  // Separate from call() because file upload needs multipart/form-data,
+  // not the JSON body call() always sends.
+  async function uploadArtwork(file, onProgress) {
+    const token = getToken();
+    if (!token) throw new Error('Please sign in to upload artwork.');
+    const form = new FormData();
+    form.append('file', file, file.name);
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload');
+      xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+        };
+      }
+      xhr.onload = () => {
+        let data = {};
+        try { data = JSON.parse(xhr.responseText); } catch (e) {}
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error(data.error || ('Upload failed (' + xhr.status + ')')));
+      };
+      xhr.onerror = () => reject(new Error('Upload failed — check your connection.'));
+      xhr.send(form);
+    });
+  }
+
   global.PFApi = {
     getSession, signup, login, logout,
     placeOrder, fetchOrders, fetchOrderEvents,
@@ -250,6 +279,7 @@
     adminSendProofApproval, fetchProofApproval, respondProofApproval,
     adminFetchMarginReport,
     adminFetchSettings, adminUpdateSettings,
-    adminFetchBackup, adminFetchActivity
+    adminFetchBackup, adminFetchActivity,
+    uploadArtwork
   };
 })(window);

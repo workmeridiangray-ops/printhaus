@@ -32,6 +32,10 @@
  *   GET   /api/admin/job-orders/:id/events   -> { events: [...] }
  *   GET   /api/admin/job-orders/:id/card     -> { job, events, business }  (printable job card)
  *
+ *   -- Artwork uploads (R2-backed) --
+ *   POST /api/upload           (auth) multipart/form-data "file" -> { key, filename, size, url }
+ *   GET  /api/upload/:key      (auth, owner or admin) -> streams the file back
+ *
  *   -- Order lifecycle / abandoned cart --
  *   GET  /api/orders/:id/events  (auth) -> { events: [...] }   (status timeline for one order)
  *   POST /api/cart/sync          (auth) { items } -> { ok }    (debounced client-side ping; cron sweeps for reminders)
@@ -294,8 +298,8 @@ export default {
           .run();
         for (const i of items) {
           await db
-            .prepare('INSERT INTO order_items (order_id, slug, name, size, opt, qty, unit_price) VALUES (?,?,?,?,?,?,?)')
-            .bind(id, i.slug, i.name, i.size || '', i.opt || '', i.qty, i.unit)
+            .prepare('INSERT INTO order_items (order_id, slug, name, size, opt, qty, unit_price, artwork_key) VALUES (?,?,?,?,?,?,?,?)')
+            .bind(id, i.slug, i.name, i.size || '', i.opt || '', i.qty, i.unit, i.artworkKey || null)
             .run();
         }
         return json({ ok: true, order: { id } });
@@ -312,6 +316,70 @@ export default {
           })
         );
         return json({ orders: withItems });
+      }
+
+      // ---------- Artwork uploads (R2) ----------
+      // POST /api/upload — multipart/form-data, field "file". Auth required
+      // (artwork is tied to the uploading account). Returns { key, filename,
+      // size, url } where url is this same worker's /api/upload/:key route
+      // (kept behind the worker rather than making the bucket public).
+      if (pathname === '/api/upload' && request.method === 'POST') {
+        if (!env.ARTWORK_BUCKET) return err('File uploads are not configured yet', 503);
+        const user = await getUserFromToken(db, bearerToken(request));
+        if (!user) return err('Not authenticated', 401);
+
+        const form = await request.formData().catch(() => null);
+        const file = form && form.get('file');
+        if (!file || typeof file === 'string') return err('No file provided');
+
+        const MAX_BYTES = 25 * 1024 * 1024; // 25MB
+        if (file.size > MAX_BYTES) return err('File is too large (25MB max)', 413);
+
+        const ALLOWED = new Set([
+          'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml',
+          'application/pdf',
+          'application/postscript', // .ai / .eps
+          'image/vnd.adobe.photoshop',
+          'application/x-photoshop',
+          'application/octet-stream' // fallback for .ai/.psd/.cdr that the browser can't type
+        ]);
+        if (file.type && !ALLOWED.has(file.type)) return err('Unsupported file type: ' + file.type, 415);
+
+        const safeName = (file.name || 'artwork').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120);
+        const key = `artwork/${user.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${safeName}`;
+
+        await env.ARTWORK_BUCKET.put(key, await file.arrayBuffer(), {
+          httpMetadata: { contentType: file.type || 'application/octet-stream' }
+        });
+        await db
+          .prepare('INSERT INTO uploads (key, user_id, filename, size_bytes, content_type) VALUES (?,?,?,?,?)')
+          .bind(key, user.id, safeName, file.size, file.type || '')
+          .run();
+
+        return json({ ok: true, key, filename: safeName, size: file.size, url: `/api/upload/${encodeURIComponent(key)}` });
+      }
+
+      // GET /api/upload/:key — streams the file back. Auth required; only
+      // the uploader or an admin can fetch it.
+      if (pathname.startsWith('/api/upload/') && request.method === 'GET') {
+        if (!env.ARTWORK_BUCKET) return err('File uploads are not configured yet', 503);
+        const key = decodeURIComponent(pathname.slice('/api/upload/'.length));
+        const adminKey = request.headers.get('X-Admin-Key');
+        const isAdmin = !!env.ADMIN_KEY && adminKey === env.ADMIN_KEY;
+        if (!isAdmin) {
+          const user = await getUserFromToken(db, bearerToken(request));
+          const row = await db.prepare('SELECT user_id FROM uploads WHERE key = ?').bind(key).first();
+          if (!user || !row || row.user_id !== user.id) return err('Not authorized', 403);
+        }
+        const obj = await env.ARTWORK_BUCKET.get(key);
+        if (!obj) return err('Not found', 404);
+        return new Response(obj.body, {
+          headers: {
+            'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'private, max-age=86400'
+          }
+        });
       }
 
       // ---------- Quotes (no auth required — same as the old quote form) ----------

@@ -31,14 +31,15 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 
 CREATE TABLE IF NOT EXISTS order_items (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  order_id   TEXT NOT NULL REFERENCES orders(id),
-  slug       TEXT NOT NULL,
-  name       TEXT NOT NULL,
-  size       TEXT,
-  opt        TEXT,
-  qty        INTEGER NOT NULL,
-  unit_price REAL NOT NULL
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id    TEXT NOT NULL REFERENCES orders(id),
+  slug        TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  size        TEXT,
+  opt         TEXT,
+  qty         INTEGER NOT NULL,
+  unit_price  REAL NOT NULL,
+  artwork_key TEXT  -- R2 object key for an uploaded artwork file, if any
 );
 
 CREATE TABLE IF NOT EXISTS quotes (

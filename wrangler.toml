@@ -12,6 +12,14 @@ binding = "DB"
 database_name = "printhaus"
 database_id = "a6ce98e0-f17d-4d52-b2e3-9d39e21a9f8a"
 
+# Artwork file uploads (customer-submitted print-ready files). Create the
+# bucket with `wrangler r2 bucket create printhaus-artwork` (or via the
+# Cloudflare dashboard) before deploying — until the bucket exists this
+# binding will fail at deploy time, so add it only once the bucket is live.
+[[r2_buckets]]
+binding = "ARTWORK_BUCKET"
+bucket_name = "printhaus-artwork"
+
 # Runs scheduled() hourly — sweeps abandoned carts (1hr/24hr reminders)
 # and overdue payment reminders. See src/worker.js scheduled().
 [triggers]

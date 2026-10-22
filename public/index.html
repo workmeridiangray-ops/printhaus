@@ -1534,7 +1534,9 @@ function renderCheckout(){
       customer: document.getElementById('shipName').value,
       phone: document.getElementById('shipPhone').value,
       address: document.getElementById('shipAddress').value,
-      note: document.getElementById('orderNote').value + cart.filter(i=>i.artworkLink).map(i=>'\nArtwork for '+i.name+': '+i.artworkLink).join(''),
+      note: document.getElementById('orderNote').value
+        + cart.filter(i=>i.artworkLink).map(i=>'\nArtwork link for '+i.name+': '+i.artworkLink).join('')
+        + cart.filter(i=>i.artworkKey).map(i=>'\nArtwork file uploaded for '+i.name+' (key: '+i.artworkKey+')').join(''),
       items: cart,
       subtotal: subtotal,
       gst: gst,
@@ -1971,7 +1973,16 @@ function renderProduct(slug){
             <div class="option-group"><label>Print options <span class="info-dot">i</span></label><div class="swatch-row" id="optPills"></div></div>
             <div class="option-group"><label>Quantity <span class="info-dot">i</span></label><select id="qtySel"></select></div>
 
-            <div class="option-group"><label for="artworkLink">Artwork link (optional)</label><input id="artworkLink" type="url" placeholder="https://…"><small>Share a publicly accessible design link. Direct file uploads are not available yet.</small></div>
+            <div class="option-group">
+              <label for="artworkFile">Artwork file (optional)</label>
+              <input id="artworkFile" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.ai,.eps,.psd,.cdr" style="display:block;">
+              <small id="artworkFileHint">PNG, JPG, PDF, AI, EPS or PSD — up to 25MB. Sign in to upload.</small>
+              <div id="artworkFileProgress" hidden style="margin-top:6px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;"><div style="height:100%;width:0%;background:var(--pink-deep);transition:width .15s;"></div></div>
+              <div id="artworkFileStatus" style="margin-top:4px;font-size:13px;"></div>
+              <details style="margin-top:6px;"><summary style="cursor:pointer;color:var(--muted);font-size:13px;">or paste a link instead</summary>
+                <input id="artworkLink" type="url" placeholder="https://…" style="margin-top:6px;">
+              </details>
+            </div>
 
             <div class="design-support" hidden>
               <input type="checkbox" id="designSupport">
@@ -2103,10 +2114,41 @@ function updatePrice(slug){
   `;
   document.getElementById('designSupport').onchange = () => updatePrice(slug);
   const addBtn = document.getElementById('addCartBtn');
-  addBtn.onclick = () => {
+  addBtn.onclick = async () => {
     const artworkLink=document.getElementById('artworkLink');
     if(!artworkLink.reportValidity()) return;
-    addToCart({ slug, name: p.name, size, opt: cleanOptionLabel(opt), qty: q, unit, artworkLink:artworkLink.value.trim() });
+    const fileInput = document.getElementById('artworkFile');
+    const statusEl = document.getElementById('artworkFileStatus');
+    const progressWrap = document.getElementById('artworkFileProgress');
+    const progressBar = progressWrap ? progressWrap.firstElementChild : null;
+    let artworkKey = null;
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    if (file) {
+      if (!getSession()) {
+        if (statusEl){ statusEl.textContent = 'Sign in to upload a file — or use the link field instead.'; statusEl.style.color = '#b42318'; }
+        location.hash = 'account';
+        return;
+      }
+      addBtn.disabled = true;
+      const prevLabel = addBtn.textContent;
+      addBtn.textContent = 'Uploading…';
+      if (statusEl){ statusEl.textContent = 'Uploading ' + file.name + '…'; statusEl.style.color = ''; }
+      if (progressWrap) progressWrap.hidden = false;
+      try {
+        const res = await window.PFApi.uploadArtwork(file, (pct) => { if (progressBar) progressBar.style.width = pct + '%'; });
+        artworkKey = res.key;
+        if (statusEl){ statusEl.textContent = 'Uploaded: ' + res.filename; statusEl.style.color = '#1a7f37'; }
+      } catch (e) {
+        if (statusEl){ statusEl.textContent = 'Upload failed: ' + e.message; statusEl.style.color = '#b42318'; }
+        addBtn.disabled = false;
+        addBtn.textContent = prevLabel;
+        if (progressWrap) progressWrap.hidden = true;
+        return;
+      }
+      addBtn.disabled = false;
+      addBtn.textContent = prevLabel;
+    }
+    addToCart({ slug, name: p.name, size, opt: cleanOptionLabel(opt), qty: q, unit, artworkLink: artworkKey ? '' : artworkLink.value.trim(), artworkKey });
     const msg = document.getElementById('cartMsg');
     msg.textContent = 'Added to cart.';
     setTimeout(() => { msg.textContent = ''; }, 2500);
