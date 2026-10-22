@@ -65,6 +65,20 @@
  *   GET   /api/admin/backup              -> full JSON dump of every table
  *   GET   /api/admin/activity            -> { activity: [...] }
  *
+ *   -- Product catalogue (D1-backed; replaces static calc-data.json) --
+ *   GET   /api/products                        -> {slug: {name,cat,subcat,mode,qtyRange,sizes}} (active only, public)
+ *   GET   /api/admin/products                  -> { products: [...] }               (list, all incl. archived)
+ *   GET   /api/admin/products/:slug             -> { product }                       (full detail incl. sizes)
+ *   POST  /api/admin/products                  { slug, name, cat, subcat?, mode?, qtyRange?, sizes? } -> { ok, product: { slug } }
+ *   PATCH /api/admin/products/:slug             { name?, cat?, subcat?, mode?, qtyRange?, active?, displayOrder?, sizes? } -> { ok }
+ *   POST  /api/admin/products/:slug/archive     -> { ok }   (soft-delete — never removes the row)
+ *   POST  /api/admin/products/:slug/unarchive   -> { ok }
+ *   POST  /api/admin/products/:slug/duplicate   { newSlug, newName? } -> { ok, product: { slug } }
+ *   GET   /api/admin/products/:slug/log         -> { log: [...] }                   (edit history)
+ *   POST  /api/admin/products/migrate           -> { ok, migrated, alreadyPresent, total }
+ *        (one-time: loads calc-data.json into the products table, skipping
+ *         slugs already present — safe to call more than once)
+ *
  * Auth model: a random session token is stored in the `sessions` table and
  * returned to the client, which keeps it in localStorage (same as before —
  * only the account/order DATA moved server-side, not the browser's handling
@@ -121,6 +135,13 @@ function cleanOptionLabel(raw) {
 }
 
 let calcDataCache = null;
+// In-memory cache for GET /api/products, scoped to one Worker isolate (so
+// it's a per-colo, best-effort speedup, not a correctness guarantee) —
+// invalidated immediately on any product create/update/archive/duplicate
+// below, and naturally expires after PRODUCTS_CACHE_MS regardless.
+let productsCache = null;
+let productsCacheAt = 0;
+const PRODUCTS_CACHE_MS = 30000;
 async function getCalcData(env, request) {
   if (calcDataCache) return calcDataCache;
   if (!env.ASSETS) return null;
@@ -207,13 +228,35 @@ function isValidJobTransition(from, to) {
   return Array.isArray(allowed) && allowed.includes(to);
 }
 
+// Builds the same {slug: {sizes: {...}}} shape priceItem() expects, read
+// live from the D1 products table (active products only) rather than the
+// static calc-data.json. This is what makes an admin price edit actually
+// take effect on checkout, not just on the storefront's displayed price —
+// previously the server recomputed from the frozen static file, so a price
+// change here would have had no effect on what customers were actually
+// charged until the next deploy.
+async function getProductsFromDb(db) {
+  const rows = await db.prepare('SELECT slug, sizes_json FROM products WHERE active = 1').all();
+  const out = {};
+  for (const r of rows.results) {
+    try { out[r.slug] = { sizes: JSON.parse(r.sizes_json) }; } catch (e) {}
+  }
+  return out;
+}
+
 const MAX_ORDER_ITEMS = 100; // sanity ceiling on cart size per order
 
-async function priceOrder(env, request, items) {
+async function priceOrder(env, request, db, items) {
   if (!Array.isArray(items) || !items.length) throw new Error('No items in order.');
   if (items.length > MAX_ORDER_ITEMS) throw new Error(`Orders are limited to ${MAX_ORDER_ITEMS} items — please split this into multiple orders.`);
-  const calcData = await getCalcData(env, request);
-  if (!calcData) throw new Error('Pricing data is temporarily unavailable — please try again.');
+  let calcData = await getProductsFromDb(db);
+  // Falls back to the static calc-data.json only if the products table is
+  // completely empty (migration hasn't run yet) — never once it has real
+  // rows, so an admin edit always wins over the stale static file.
+  if (!calcData || !Object.keys(calcData).length) {
+    calcData = await getCalcData(env, request);
+  }
+  if (!calcData || !Object.keys(calcData).length) throw new Error('Pricing data is temporarily unavailable — please try again.');
   let subtotal = 0;
   const priced = [];
   for (const item of items) {
@@ -599,7 +642,7 @@ export default {
         // can't produce an order at an arbitrary price.
         let priced;
         try {
-          priced = await priceOrder(env, request, items);
+          priced = await priceOrder(env, request, db, items);
         } catch (e) {
           return err(e.message, 422);
         }
@@ -1188,6 +1231,171 @@ export default {
         if (!adminOk) return err('Unauthorized', 401);
         const rows = await db.prepare('SELECT * FROM activity_log ORDER BY created_at DESC LIMIT 200').all();
         return json({ activity: rows.results });
+      }
+
+      // ---------- Product catalogue (D1-backed, replaces calc-data.json) ----------
+      // One-time migration: loads calc-data.json (the static asset) into
+      // the products table, skipping any slug already present — safe to
+      // call more than once (e.g. if it times out partway through). Runs
+      // in small batches rather than one giant db.batch() over all 225
+      // products (~5.5MB of JSON total) to stay well inside a single
+      // request's CPU/time budget.
+      if (pathname === '/api/admin/products/migrate' && request.method === 'POST') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const calcData = await getCalcData(env, request);
+        if (!calcData) return err('calc-data.json not reachable', 503);
+
+        const existing = await db.prepare('SELECT slug FROM products').all();
+        const existingSlugs = new Set(existing.results.map((r) => r.slug));
+
+        const toInsert = Object.entries(calcData).filter(([slug]) => !existingSlugs.has(slug));
+        const BATCH_SIZE = 20;
+        let migrated = 0;
+        for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+          const chunk = toInsert.slice(i, i + BATCH_SIZE);
+          const statements = chunk.map(([slug, p]) =>
+            db.prepare(
+              `INSERT INTO products (slug, name, cat, subcat, mode, qty_range, sizes_json, updated_by)
+               VALUES (?,?,?,?,?,?,?,?)`
+            ).bind(
+              slug, p.name || slug, p.cat || '', p.subcat || '', p.mode || '', p.qtyRange || '',
+              JSON.stringify(p.sizes || {}), 'migration'
+            )
+          );
+          await db.batch(statements);
+          migrated += chunk.length;
+        }
+        await logActivity(db, 'admin', 'products-migrated', `${migrated} product(s) migrated from calc-data.json`);
+        return json({ ok: true, migrated, alreadyPresent: existingSlugs.size, total: Object.keys(calcData).length });
+      }
+
+      // Public catalogue read — replaces the storefront's direct fetch of
+      // /calc-data.json. Returns the same {slug: {name,cat,subcat,mode,
+      // qtyRange,sizes}} shape so index.html needs minimal changes, built
+      // from the D1 products table (only active products) instead of the
+      // static file, so admin edits take effect without a redeploy.
+      if (pathname === '/api/products' && request.method === 'GET') {
+        if (productsCache && Date.now() - productsCacheAt < PRODUCTS_CACHE_MS) {
+          return json(productsCache);
+        }
+        const rows = await db.prepare('SELECT slug, name, cat, subcat, mode, qty_range, sizes_json FROM products WHERE active = 1 ORDER BY display_order, name').all();
+        const out = {};
+        for (const r of rows.results) {
+          let sizes = {};
+          try { sizes = JSON.parse(r.sizes_json); } catch (e) {}
+          out[r.slug] = { name: r.name, cat: r.cat, subcat: r.subcat, mode: r.mode, qtyRange: r.qty_range, sizes };
+        }
+        productsCache = out;
+        productsCacheAt = Date.now();
+        return json(out);
+      }
+
+      // ---------- Admin product CRUD ----------
+      if (pathname === '/api/admin/products' && request.method === 'GET') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const rows = await db.prepare('SELECT slug, name, cat, subcat, mode, qty_range, active, display_order, updated_at FROM products ORDER BY cat, name').all();
+        return json({ products: rows.results });
+      }
+
+      const productDetailMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)$/);
+      if (productDetailMatch && request.method === 'GET') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const row = await db.prepare('SELECT * FROM products WHERE slug = ?').bind(productDetailMatch[1]).first();
+        if (!row) return err('Not found', 404);
+        let sizes = {};
+        try { sizes = JSON.parse(row.sizes_json); } catch (e) {}
+        return json({ product: { ...row, sizes_json: undefined, sizes } });
+      }
+
+      if (pathname === '/api/admin/products' && request.method === 'POST') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const body = await request.json();
+        const { slug, name, cat, subcat, mode, qtyRange, sizes } = body;
+        if (!slug || !name || !cat) return err('slug, name, and cat are required');
+        if (!/^[a-z0-9-]+$/.test(slug)) return err('slug must be lowercase letters, numbers, and hyphens only');
+        const existing = await db.prepare('SELECT slug FROM products WHERE slug = ?').bind(slug).first();
+        if (existing) return err('A product with that slug already exists', 409);
+        await db.prepare(
+          `INSERT INTO products (slug, name, cat, subcat, mode, qty_range, sizes_json, updated_by) VALUES (?,?,?,?,?,?,?,?)`
+        ).bind(slug, name, cat, subcat || '', mode || 'full', qtyRange || '', JSON.stringify(sizes || {}), 'admin').run();
+        await db.prepare('INSERT INTO product_edit_log (slug, actor, action, detail) VALUES (?,?,?,?)').bind(slug, 'admin', 'create', name).run();
+        productsCache = null; // invalidate the read cache
+        return json({ ok: true, product: { slug } });
+      }
+
+      if (productDetailMatch && request.method === 'PATCH') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const slug = productDetailMatch[1];
+        const existing = await db.prepare('SELECT slug FROM products WHERE slug = ?').bind(slug).first();
+        if (!existing) return err('Not found', 404);
+        const body = await request.json();
+        const fieldMap = { name: 'name', cat: 'cat', subcat: 'subcat', mode: 'mode', qtyRange: 'qty_range', active: 'active', displayOrder: 'display_order' };
+        const sets = [];
+        const values = [];
+        for (const [key, col] of Object.entries(fieldMap)) {
+          if (body[key] !== undefined) { sets.push(col + ' = ?'); values.push(key === 'active' ? (body[key] ? 1 : 0) : body[key]); }
+        }
+        if (body.sizes !== undefined) { sets.push('sizes_json = ?'); values.push(JSON.stringify(body.sizes)); }
+        if (!sets.length) return err('No updatable fields provided');
+        sets.push("updated_at = datetime('now')", "updated_by = 'admin'");
+        values.push(slug);
+        await db.prepare(`UPDATE products SET ${sets.join(', ')} WHERE slug = ?`).bind(...values).run();
+        await db.prepare('INSERT INTO product_edit_log (slug, actor, action, detail) VALUES (?,?,?,?)')
+          .bind(slug, 'admin', 'update', Object.keys(body).join(', ')).run();
+        productsCache = null;
+        return json({ ok: true });
+      }
+
+      // Archive (soft-delete) — never hard-deletes a product, since past
+      // orders reference products by slug/name/size/opt snapshotted at
+      // order time, not a live foreign key, but an archived product should
+      // stop appearing in the storefront and mega-menus immediately.
+      const productArchiveMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)\/archive$/);
+      if (productArchiveMatch && request.method === 'POST') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const slug = productArchiveMatch[1];
+        const result = await db.prepare("UPDATE products SET active = 0, updated_at = datetime('now'), updated_by = 'admin' WHERE slug = ?").bind(slug).run();
+        if (!result.meta.changes) return err('Not found', 404);
+        await db.prepare('INSERT INTO product_edit_log (slug, actor, action) VALUES (?,?,?)').bind(slug, 'admin', 'archive').run();
+        productsCache = null;
+        return json({ ok: true });
+      }
+
+      const productUnarchiveMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)\/unarchive$/);
+      if (productUnarchiveMatch && request.method === 'POST') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const slug = productUnarchiveMatch[1];
+        const result = await db.prepare("UPDATE products SET active = 1, updated_at = datetime('now'), updated_by = 'admin' WHERE slug = ?").bind(slug).run();
+        if (!result.meta.changes) return err('Not found', 404);
+        await db.prepare('INSERT INTO product_edit_log (slug, actor, action) VALUES (?,?,?)').bind(slug, 'admin', 'unarchive').run();
+        productsCache = null;
+        return json({ ok: true });
+      }
+
+      const productDuplicateMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)\/duplicate$/);
+      if (productDuplicateMatch && request.method === 'POST') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const sourceSlug = productDuplicateMatch[1];
+        const { newSlug, newName } = await request.json();
+        if (!newSlug || !/^[a-z0-9-]+$/.test(newSlug)) return err('newSlug (lowercase letters, numbers, hyphens) is required');
+        const source = await db.prepare('SELECT * FROM products WHERE slug = ?').bind(sourceSlug).first();
+        if (!source) return err('Source product not found', 404);
+        const clash = await db.prepare('SELECT slug FROM products WHERE slug = ?').bind(newSlug).first();
+        if (clash) return err('A product with that slug already exists', 409);
+        await db.prepare(
+          `INSERT INTO products (slug, name, cat, subcat, mode, qty_range, sizes_json, updated_by) VALUES (?,?,?,?,?,?,?,?)`
+        ).bind(newSlug, newName || (source.name + ' (copy)'), source.cat, source.subcat, source.mode, source.qty_range, source.sizes_json, 'admin').run();
+        await db.prepare('INSERT INTO product_edit_log (slug, actor, action, detail) VALUES (?,?,?,?)')
+          .bind(newSlug, 'admin', 'duplicate', 'from ' + sourceSlug).run();
+        productsCache = null;
+        return json({ ok: true, product: { slug: newSlug } });
+      }
+
+      const productEditLogMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)\/log$/);
+      if (productEditLogMatch && request.method === 'GET') {
+        if (!adminOk) return err('Unauthorized', 401);
+        const rows = await db.prepare('SELECT * FROM product_edit_log WHERE slug = ? ORDER BY created_at DESC LIMIT 50').bind(productEditLogMatch[1]).all();
+        return json({ log: rows.results });
       }
 
       return err('Not found', 404);

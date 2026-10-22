@@ -521,8 +521,24 @@ function syncAccountIcon(){
 }
 
 async function loadData(){
-  const res = await fetch('calc-data.json');
-  DATA = await res.json();
+  // Reads the live product catalogue from the Worker's D1-backed
+  // /api/products route (so admin edits take effect immediately), falling
+  // back to the static calc-data.json only if that route is unreachable
+  // (e.g. before the one-time migration has run, or the API is down) —
+  // keeps the storefront working either way.
+  let data = null;
+  try {
+    const apiRes = await fetch('/api/products');
+    if (apiRes.ok) {
+      const apiData = await apiRes.json();
+      if (apiData && Object.keys(apiData).length) data = apiData;
+    }
+  } catch (e) {}
+  if (!data) {
+    const res = await fetch('calc-data.json');
+    data = await res.json();
+  }
+  DATA = data;
   CATS = Array.from(new Set(Object.values(DATA).map(p => p.cat))).sort();
   CAT_SUBCATS = {};
   CATS.forEach(c => {

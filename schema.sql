@@ -232,6 +232,40 @@ CREATE TABLE IF NOT EXISTS rate_limit_hits (
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Product catalogue. Each product's full size -> option -> [[qty,price],...]
+-- pricing table is stored as ONE JSON blob per product (sizes_json), not as
+-- normalized rows. calc-data.json has 282,561 individual price-tier rows
+-- across 225 products; a fully normalized schema would blow D1's free-tier
+-- daily write cap (100,000/day) on the first migration run alone, and isn't
+-- needed for what admin editing actually requires — editing one product's
+-- whole price table at a time. 225 products = 225 blob writes.
+CREATE TABLE IF NOT EXISTS products (
+  slug          TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  cat           TEXT NOT NULL,
+  subcat        TEXT,
+  mode          TEXT,
+  qty_range     TEXT,
+  active        INTEGER NOT NULL DEFAULT 1,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  sizes_json    TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_by    TEXT
+);
+
+-- Lightweight audit trail for product edits (who changed what, when) —
+-- records the action and a short detail string, not a full before/after
+-- diff of the (potentially large) pricing blob.
+CREATE TABLE IF NOT EXISTS product_edit_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug        TEXT NOT NULL,
+  actor       TEXT,
+  action      TEXT NOT NULL,  -- 'create' / 'update' / 'archive' / 'unarchive' / 'duplicate'
+  detail      TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_carts_user          ON carts(user_id);
 CREATE INDEX IF NOT EXISTS idx_carts_status         ON carts(status);
 CREATE INDEX IF NOT EXISTS idx_orderevents_order    ON order_events(order_id);
@@ -241,3 +275,6 @@ CREATE INDEX IF NOT EXISTS idx_creditnotes_order    ON credit_notes(order_id);
 CREATE INDEX IF NOT EXISTS idx_proofapprovals_job   ON proof_approvals(job_id);
 CREATE INDEX IF NOT EXISTS idx_idempotency_user     ON idempotency_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_ratelimit_bucket_time ON rate_limit_hits(bucket, created_at);
+CREATE INDEX IF NOT EXISTS idx_products_cat         ON products(cat);
+CREATE INDEX IF NOT EXISTS idx_products_active      ON products(active);
+CREATE INDEX IF NOT EXISTS idx_productedit_slug     ON product_edit_log(slug);
