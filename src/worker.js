@@ -332,8 +332,21 @@ export default {
         const file = form && form.get('file');
         if (!file || typeof file === 'string') return err('No file provided');
 
-        const MAX_BYTES = 25 * 1024 * 1024; // 25MB
+        const MAX_BYTES = 25 * 1024 * 1024; // 25MB per file
         if (file.size > MAX_BYTES) return err('File is too large (25MB max)', 413);
+
+        // Daily per-user cap — keeps R2 usage predictable (well inside the
+        // free tier: 10GB storage / 1M writes / 10M reads per month) even
+        // if a single account tries to spam uploads.
+        const DAILY_UPLOAD_LIMIT = 30;
+        const DAILY_BYTES_LIMIT = 200 * 1024 * 1024; // 200MB/user/day
+        const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+        const usage = await db
+          .prepare('SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS bytes FROM uploads WHERE user_id = ? AND created_at > ?')
+          .bind(user.id, since)
+          .first();
+        if (usage.n >= DAILY_UPLOAD_LIMIT) return err('Daily upload limit reached (30 files/day). Try again tomorrow.', 429);
+        if (usage.bytes + file.size > DAILY_BYTES_LIMIT) return err('Daily upload data limit reached (200MB/day). Try again tomorrow.', 429);
 
         const ALLOWED = new Set([
           'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml',
