@@ -21,7 +21,7 @@ button{font-family:inherit}
 .logo{display:flex;align-items:center;gap:9px;font-family:Fraunces,serif;font-weight:700;font-size:24px;line-height:1;white-space:nowrap;cursor:pointer;}
 .logo .dot{color:var(--pink)}
 .logo small{display:block;font:700 8px 'Inter',sans-serif;letter-spacing:2.5px;margin-top:5px;color:var(--muted)}
-.logo-mark{font-size:26px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--pink);color:var(--cream);border-radius:10px;font-style:normal;}
+.logo-mark{width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--pink);color:var(--cream);border-radius:10px;flex-shrink:0;}
 .navlinks{display:flex;gap:20px;margin-left:auto;font-size:14px;font-weight:500;align-items:center;position:relative;white-space:nowrap;}
 .navlinks>a,.navlinks>.nav-drop>a{padding:12px 0;display:inline-block;}
 .navlinks a:hover,.navlinks .active{color:var(--pink);border-bottom:2px solid var(--pink)}
@@ -33,6 +33,51 @@ button{font-family:inherit}
 .mega a:hover{color:var(--pink);}
 .mega .all-link{grid-column:1/-1;font-weight:700;color:var(--navy);border-top:1px solid var(--line);margin-top:4px;padding-top:10px;}
 .nav-icons{display:flex;align-items:center;gap:4px;}
+
+/* Generic 3-column category mega-menu, built from real CATS/CAT_SUBCATS/DATA */
+.cat-mega{position:absolute;top:100%;left:50%;transform:translateX(-50%);background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 20px 40px #1c2b1f1f;padding:20px;min-width:560px;display:none;z-index:40;}
+.nav-drop:hover .cat-mega,.nav-drop.open .cat-mega{display:block;}
+.cat-mega-cols{display:grid;grid-template-columns:repeat(var(--cols,3),1fr) 170px;gap:26px;}
+.cat-mega-col h5{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:800;}
+.cat-mega-col a{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:13px;font-weight:500;color:var(--navy);padding:6px 4px;border-radius:6px;}
+.cat-mega-col a:hover{color:var(--pink);background:var(--pale);}
+.cat-mega-col a svg{width:13px;height:13px;flex-shrink:0;opacity:.6;}
+.cat-mega-promo{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--pale);display:flex;flex-direction:column;gap:8px;}
+.cat-mega-promo .imgph{height:70px;border-radius:7px;}
+.cat-mega-promo b{font-size:12.5px;}
+.cat-mega-promo a.shop-all{color:var(--pink);font-size:12px;font-weight:700;}
+.cat-mega-ask{grid-column:1/-1;border-top:1px solid var(--line);margin-top:16px;padding-top:12px;font-size:12.5px;text-align:center;}
+.cat-mega-ask a{color:var(--pink);font-weight:700;}
+@media(max-width:1150px){.cat-mega{min-width:460px;}.cat-mega-cols{grid-template-columns:repeat(var(--cols,3),1fr);}.cat-mega-promo{display:none;}}
+@media(max-width:650px){
+  .cat-mega{position:static;transform:none;display:none;box-shadow:none;border:none;padding:0 0 0 18px;min-width:0;}
+  .nav-drop.open .cat-mega{display:block;}
+  .cat-mega-cols{grid-template-columns:1fr;gap:4px;}
+  .cat-mega-promo{display:none;}
+  .cat-mega-ask{display:none;}
+}
+.nav-drop .caret{display:inline-block;margin-left:3px;font-size:10px;}
+
+/* Category/PLP page: filter rail + grid */
+.plp-layout{display:grid;grid-template-columns:230px 1fr;gap:32px;align-items:start;}
+.plp-rail{border:1px solid var(--line);border-radius:12px;padding:18px;}
+.plp-rail-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+.plp-rail-head h4{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.05em;}
+.plp-rail-head button{background:none;border:none;color:var(--pink);font-size:12px;font-weight:700;cursor:pointer;padding:0;}
+.plp-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+.plp-chip{display:inline-flex;align-items:center;gap:6px;background:var(--pale);border-radius:20px;padding:5px 10px;font-size:11.5px;font-weight:700;color:var(--navy);}
+.plp-chip button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:0;}
+.plp-group{border-top:1px solid var(--line);padding:12px 0;}
+.plp-group:first-of-type{border-top:0;padding-top:0;}
+.plp-group summary{cursor:pointer;font-weight:700;font-size:13px;list-style:none;display:flex;justify-content:space-between;align-items:center;}
+.plp-group summary::-webkit-details-marker{display:none;}
+.plp-group summary::after{content:'+';font-weight:400;color:var(--muted);}
+.plp-group[open] summary::after{content:'–';}
+.plp-group label{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--navy);padding:7px 0;cursor:pointer;}
+.plp-main-head{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap;}
+.plp-search{flex:1;min-width:160px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit;font-size:13px;}
+.plp-sort{border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit;font-size:13px;background:#fff;}
+@media(max-width:900px){.plp-layout{grid-template-columns:1fr;}}
 .nav-icon-btn{position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:none;background:none;color:var(--navy);cursor:pointer;}
 .account-btn{width:auto;gap:7px;padding:0 4px 0 0;}
 .account-label{font-size:12.5px;font-weight:600;white-space:nowrap;}
@@ -68,6 +113,21 @@ h1{font-size:clamp(36px,4vw,54px);line-height:1.1;margin:14px 0 18px;font-weight
 .hero-proof span{color:var(--cyan);letter-spacing:2px;margin-right:8px}
 .hero-art{position:relative;min-height:440px;overflow:hidden;background:var(--pale);padding:30px;}
 .hero-art .imgph{width:100%;height:100%;border-radius:14px;min-height:380px;}
+.hero-collage{display:grid;grid-template-columns:1.1fr 1fr;grid-template-rows:1fr 1fr;gap:14px;width:100%;height:100%;min-height:380px;}
+.hero-collage .imgph{border-radius:12px;min-height:0;position:relative;}
+.hero-collage .tile-tag{position:absolute;bottom:10px;left:10px;right:10px;background:#fffffff2;color:var(--navy);font-size:11px;font-weight:800;padding:6px 9px;border-radius:7px;text-transform:none;letter-spacing:0;}
+.hero-collage .big{grid-row:1/3;}
+.row-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+.row-head .view-all{font-size:13px;font-weight:700;color:var(--pink);white-space:nowrap;}
+.tile-row{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;}
+.tile-row .cat-tile{align-items:center;text-align:center;}
+.tile-row .cat-tile .imgph{width:100%;height:76px;border-radius:9px;margin-bottom:6px;}
+.tile-row .cat-tile b{font-size:13px;}
+@media(max-width:900px){.tile-row{grid-template-columns:repeat(3,1fr);}}
+@media(max-width:650px){.tile-row{grid-template-columns:repeat(2,1fr);}.hero-collage{grid-template-columns:1fr 1fr;}}
+.scroll-row{display:flex;gap:16px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x proximity;}
+.scroll-row .product-tile{flex:0 0 220px;scroll-snap-align:start;}
+.tile-pop{position:absolute;top:10px;left:10px;background:var(--pink);color:#fff;font-size:10px;font-weight:800;padding:4px 8px;border-radius:5px;z-index:2;text-transform:uppercase;letter-spacing:.04em;}
 
 .benefits{display:grid;grid-template-columns:repeat(4,1fr);padding:28px 0;gap:15px}
 .benefits>div{display:flex;align-items:center;gap:15px;border-right:1px solid var(--line);padding:0 18px}
@@ -333,7 +393,7 @@ table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:mi
 
 <div class="topbar"><span>☎ +91 98765 43210</span><span>✉ info@printhausindia.com</span><span class="top-address">⌖ Pan-India, 34 branches</span><span>f　◎　in</span></div>
 <header class="nav wrap">
-  <a class="logo" href="#home" data-link><span class="logo-mark">P</span><span>Print<span class="dot">Haus</span><small>PRINT YOUR IDEAS</small></span></a>
+  <a class="logo" href="#home" data-link><span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 40 40" width="24" height="24" fill="none"><path d="M9 6h15a9 9 0 0 1 0 18H15v10H9V6Zm6 6v6h9a3 3 0 0 0 0-6h-9Z" fill="currentColor"/></svg></span><span>Print<span class="dot">Haus</span><small>PRINT IDEAS TO LIFE</small></span></a>
   <button class="menu-toggle" aria-label="Toggle menu" id="menuToggle">☰</button>
   <nav class="navlinks" id="navLinks">
     <div class="nav-cat-links" id="navCatLinks"></div>
@@ -361,7 +421,7 @@ table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:mi
 <footer>
   <div class="wrap footer-grid">
     <div class="footer-brand">
-      <a class="logo" href="#home" data-link><span class="logo-mark">P</span><span>Print<span class="dot">Haus</span><small>PRINT YOUR IDEAS</small></span></a>
+      <a class="logo" href="#home" data-link><span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 40 40" width="24" height="24" fill="none"><path d="M9 6h15a9 9 0 0 1 0 18H15v10H9V6Zm6 6v6h9a3 3 0 0 0 0-6h-9Z" fill="currentColor"/></svg></span><span>Print<span class="dot">Haus</span><small>PRINT IDEAS TO LIFE</small></span></a>
       <p>Your trusted partner for high-quality printing — 25 years in business, 34 branches pan-India. 3-day dispatch and no minimum order quantity on every product.</p>
       <div>◎　f　in</div>
     </div>
@@ -477,7 +537,11 @@ async function loadData(){
   document.getElementById('navCatLinks').addEventListener('click', (e) => {
     if (window.innerWidth > 650) return;
     const drop = e.target.closest('.nav-drop');
-    if (drop && e.target.textContent.trim().startsWith('More')){
+    if (!drop) return;
+    const link = e.target.closest('a');
+    // On mobile, tapping a top-level category/More link with a submenu expands it in place
+    // instead of navigating, unless it's a real sub-item link (those should navigate).
+    if (link && (link.querySelector('.caret') || link.textContent.trim().startsWith('More')) && drop.querySelector('.mega,.cat-mega')){
       e.preventDefault();
       drop.classList.toggle('open');
     }
@@ -495,11 +559,86 @@ async function loadData(){
   router();
 }
 
+// Pull distinct "material-ish" tokens out of a category's real option strings, e.g.
+// "Select Shape: Arch | Quality: Basic | Select Material: Kraft Paper" -> "Kraft Paper".
+// Looks for segments whose label mentions material/paper/finish, falls back to nothing
+// (categories with no such field just get a thinner menu — no invented values).
+const MATERIAL_WORDS = ['material', 'paper', 'finish', 'stock'];
+function materialTokensForCat(cat){
+  const seen = new Set();
+  Object.values(DATA).forEach(p => {
+    if (p.cat !== cat) return;
+    Object.values(p.sizes).forEach(optMap => Object.keys(optMap).forEach(raw => {
+      if (raw === '(default)') return;
+      raw.split('|').forEach(seg => {
+        const idx = seg.indexOf(':');
+        if (idx === -1) return;
+        const label = seg.slice(0, idx).toLowerCase();
+        if (!MATERIAL_WORDS.some(w => label.includes(w))) return;
+        const val = seg.slice(idx + 1).trim();
+        if (val && val.length < 28) seen.add(val);
+      });
+    }));
+  });
+  return Array.from(seen).sort();
+}
+
+function navChevron(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>'; }
+
+// Builds one <nav-drop> for a category: a generic 3-column mega-menu (By product / By
+// material / By use) assembled from real CATS/CAT_SUBCATS/DATA — not hardcoded per category.
+// "By product" and "By use" both draw on the category's real subcategories (there's no
+// separate use-case field in the data, so subcats do double duty, same list for thinner cats).
+// Degrades gracefully: a category with no derivable material tokens just skips that column.
+function buildCatMegaMenu(cat){
+  const catSlug = slugifyCat(cat);
+  const subs = (CAT_SUBCATS[cat] || []).filter(s => s !== 'Ready to Buy' && s !== 'New Arrivals' && s !== 'Bulk');
+  const byProduct = subs.slice(0, 6);
+  const materials = materialTokensForCat(cat).slice(0, 6);
+  const byUse = subs.slice(6, 12).length ? subs.slice(6, 12) : subs.slice(0, 6);
+  const cols = [];
+  if (byProduct.length) cols.push({ title: 'By product', items: byProduct, deep: true });
+  if (materials.length) cols.push({ title: 'By material', items: materials, deep: false });
+  if (byUse.length && byUse !== byProduct) cols.push({ title: 'By use', items: byUse, deep: true });
+  if (!cols.length) return ''; // nothing to show beyond the plain category link — no mega-menu
+
+  const colHtml = cols.map(col => `
+    <div class="cat-mega-col"><h5>${esc(col.title)}</h5>
+      ${col.items.map(item => col.deep
+        ? `<a href="#cat-${catSlug}-sub-${slugifyCat(item)}" data-link>${esc(item)}${navChevron()}</a>`
+        : `<a href="#cat-${catSlug}" data-link>${esc(item)}</a>`
+      ).join('')}
+    </div>`).join('');
+
+  return `<div class="cat-mega" style="--cols:${cols.length}">
+    <div class="cat-mega-cols">
+      ${colHtml}
+      <div class="cat-mega-promo">
+        <div class="imgph">${PH(cat)}</div>
+        <b>Find your perfect ${esc(cat.toLowerCase())}</b>
+        <a class="shop-all" href="#cat-${catSlug}" data-link>Shop all ${esc(cat)} →</a>
+      </div>
+      <div class="cat-mega-ask">Not sure what to choose? <a href="#quote" data-link>Ask our print team →</a></div>
+    </div>
+  </div>`;
+}
+
 function renderNavCats(){
-  const DIRECT_COUNT = 2;
-  const direct = CATS.slice(0, DIRECT_COUNT);
-  const rest = CATS.slice(DIRECT_COUNT);
-  const directLinks = direct.map(c => `<a href="#cat-${slugifyCat(c)}" data-link>${esc(c)}</a>`).join('');
+  const DIRECT_COUNT = 6;
+  // Show the categories with the richest mega-menus (most products) first, so the nav's
+  // real estate goes to categories shoppers are most likely to browse via dropdown.
+  const byCount = CATS.slice().sort((a,b) => {
+    const ca = Object.values(DATA).filter(p => p.cat === a).length;
+    const cb = Object.values(DATA).filter(p => p.cat === b).length;
+    return cb - ca;
+  });
+  const direct = byCount.slice(0, DIRECT_COUNT).sort((a,b) => CATS.indexOf(a) - CATS.indexOf(b));
+  const rest = CATS.filter(c => !direct.includes(c));
+  const directLinks = direct.map(c => {
+    const mega = buildCatMegaMenu(c);
+    if (!mega) return `<a href="#cat-${slugifyCat(c)}" data-link>${esc(c)}</a>`;
+    return `<div class="nav-drop"><a href="#cat-${slugifyCat(c)}" data-link>${esc(c)}<span class="caret">▾</span></a>${mega}</div>`;
+  }).join('');
   let moreDrop = '';
   if (rest.length){
     const mega = rest.map(c => `<a href="#cat-${slugifyCat(c)}" data-link>${esc(c)}</a>`).join('') + `<a class="all-link" href="#shop" data-link>Shop All Products →</a>`;
@@ -568,16 +707,42 @@ function renderHome(){
   const catCounts = {};
   Object.values(DATA).forEach(p => { catCounts[p.cat] = (catCounts[p.cat]||0)+1; });
   const featured = Object.entries(DATA).slice(0, 8);
+  const tileCats = CATS.slice(0, 6);
+  const tags = ['Good Brands Print Different', 'Ideas in Print', 'Made For Your Brand', 'Printed To Order'];
   view.innerHTML = `
     <section class="hero">
       <div class="hero-copy">
         <span class="eyebrow">YOUR BRAND, PRINTED PERFECTLY</span>
-        <h1>Print Anything.<br><em>Impress Everyone.</em></h1>
-        <p>From your first batch of business cards to a warehouse of custom packaging — ${Object.keys(DATA).length}+ products, zero minimum order, and your order out the door in 3 days. This is printing built for businesses that move fast.</p>
-        <div class="hero-actions"><a class="button" href="#shop" data-link>Start Printing Now <b>→</b></a><a class="text-link" href="#quote" data-link>Get a Custom Quote ↓</a></div>
-        <div class="hero-proof"><span>★★★★★</span> The go-to print partner for brands that don't wait</div>
+        <h1>Big ideas.<br><em>Beautifully printed.</em></h1>
+        <p>Stickers, business cards, packaging and more. Made for your brand — ${Object.keys(DATA).length}+ products, zero minimum order, dispatched in 3 days.</p>
+        <div class="hero-actions"><a class="button" href="#shop" data-link>Explore products <b>→</b></a><a class="button button-outline" href="#quote" data-link>Get a custom quote</a></div>
+        <div class="benefits" style="border:0;padding:28px 0 0;margin:0;">
+          <div style="border-right:1px solid var(--line);"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg></i><span><b>Premium print<br>quality</b></span></div>
+          <div style="border-right:1px solid var(--line);"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></i><span><b>Wide range of<br>products</b></span></div>
+          <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></i><span><b>For businesses,<br>creatives &amp; teams</b></span></div>
+        </div>
       </div>
-      <div class="hero-art">${PH('Hero image')}</div>
+      <div class="hero-art">
+        <div class="hero-collage">
+          <div class="imgph big">${PH('Stickers')}<span class="tile-tag">${esc(tags[0])}</span></div>
+          <div class="imgph">${PH('Packaging boxes')}<span class="tile-tag">${esc(tags[1])}</span></div>
+          <div class="imgph">${PH('Business cards')}<span class="tile-tag">${esc(tags[2])}</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" style="padding-top:0;">
+      <div class="row-head"><div class="section-heading"><h2>What are we printing today?</h2></div><a class="view-all" href="#shop" data-link>View all products →</a></div>
+      <div class="tile-row" style="margin-top:18px;">
+        ${tileCats.map(c => `<a class="cat-tile" href="#cat-${slugifyCat(c)}" data-link>${PH(c)}<b>${esc(c)}</b><small>${catCounts[c]} products →</small></a>`).join('')}
+      </div>
+    </section>
+
+    <section class="section wrap" style="padding-top:0;">
+      <div class="row-head"><div class="section-heading"><h2>Print favourites</h2><p>Popular choices for every business</p></div></div>
+      <div class="scroll-row" style="margin-top:18px;">
+        ${featured.map(([slug,p],i) => `<div style="position:relative;">${i===0 ? '<span class="tile-pop">Popular</span>' : ''}${productCard(slug,p)}</div>`).join('')}
+      </div>
     </section>
 
     <section class="benefits wrap">
@@ -585,11 +750,6 @@ function renderHome(){
       <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></i><span><b>Fast Turnaround</b><small>Dispatched in 3 days</small></span></div>
       <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></i><span><b>Custom Solutions</b><small>Made to fit your needs</small></span></div>
       <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg></i><span><b>Friendly Support</b><small>Here whenever you need us</small></span></div>
-    </section>
-
-    <section class="section wrap">
-      <div class="section-heading"><span class="eyebrow">WHAT WE PRINT</span><h2>Our Printing Products</h2><p>Everything you need to make your brand stand out.</p></div>
-      <div class="product-grid">${featured.map(([slug,p]) => productCard(slug,p)).join('')}</div>
     </section>
 
     <section class="section wrap" style="padding-top:0;">
@@ -625,6 +785,14 @@ function renderHome(){
   bindLinks();
 }
 
+// Per-render filter state for the category/PLP page. Reset whenever a new category renders.
+let plpState = { subs: new Set(), materials: new Set(), search: '', sort: 'rec' };
+
+// Which of a product's real option strings mention a given material token.
+function productHasMaterial(p, token){
+  return Object.values(p.sizes).some(optMap => Object.keys(optMap).some(raw => raw.includes(token)));
+}
+
 function renderCategory(rawSlug){
   let catSlug = rawSlug, subSlug = null;
   const subIdx = rawSlug.indexOf('-sub-');
@@ -634,20 +802,90 @@ function renderCategory(rawSlug){
   if (!cat){ view.innerHTML = '<div class="wrap no-data">Category not found.</div>'; return; }
   const subs = CAT_SUBCATS[cat] || [];
   const activeSub = subSlug ? subs.find(s => slugifyCat(s) === subSlug) : null;
-  let entries = Object.entries(DATA).filter(([,p]) => p.cat === cat);
-  if (activeSub) entries = entries.filter(([,p]) => p.subcat === activeSub);
-  entries.sort((a,b) => a[1].name.localeCompare(b[1].name));
+  const materials = materialTokensForCat(cat);
+  plpState = { subs: new Set(activeSub ? [activeSub] : []), materials: new Set(), search: '', sort: 'rec' };
+
   view.innerHTML = `
     <div class="wrap">
-      <div class="breadcrumbs"><a href="#home" data-link>Home</a>　›　${activeSub ? `<a href="#cat-${catSlug}" data-link>${esc(cat)}</a>　›　${esc(activeSub)}` : esc(cat)}</div>
-      <div class="page-title"><h1>${activeSub ? esc(activeSub) : esc(cat)}</h1><div class="count">${entries.length} products</div></div>
-      ${subs.length ? `<div class="subcat-chips">
-        <a href="#cat-${catSlug}" data-link class="${!activeSub ? 'active' : ''}">All ${esc(cat)}</a>
-        ${subs.map(s => `<a href="#cat-${catSlug}-sub-${slugifyCat(s)}" data-link class="${activeSub===s ? 'active' : ''}">${esc(s)}</a>`).join('')}
-      </div>` : ''}
-      <div class="product-grid" style="margin-top:22px;padding-bottom:50px;">${entries.map(([slug,p]) => productCard(slug,p)).join('')}</div>
+      <div class="breadcrumbs"><a href="#home" data-link>Home</a>　›　${esc(cat)}</div>
+      <div class="page-title"><h1>${esc(cat)}</h1><div class="count" id="plpCount"></div></div>
+      <p style="color:var(--muted);font-size:14px;margin:-6px 0 20px;">A little detail. A big brand impression.</p>
+      <div class="plp-layout">
+        <div class="plp-rail">
+          <div class="plp-rail-head"><h4>Filters</h4><button id="plpClear">Clear filters</button></div>
+          <div class="plp-chips" id="plpChips"></div>
+          ${subs.length ? `<details class="plp-group" open><summary>Product type</summary>
+            ${subs.map(s => `<label><input type="checkbox" class="plp-sub" value="${esc(s)}" ${plpState.subs.has(s)?'checked':''}> ${esc(s)}</label>`).join('')}
+          </details>` : ''}
+          ${materials.length ? `<details class="plp-group"><summary>Material</summary>
+            ${materials.map(m => `<label><input type="checkbox" class="plp-mat" value="${esc(m)}"> ${esc(m)}</label>`).join('')}
+          </details>` : ''}
+          <details class="plp-group"><summary>Shape</summary></details>
+          <details class="plp-group"><summary>Application</summary></details>
+        </div>
+        <div>
+          <div class="plp-main-head">
+            <input class="plp-search" id="plpSearch" placeholder="Search within ${esc(cat)}">
+            <select class="plp-sort" id="plpSort">
+              <option value="rec">Sort: Recommended</option>
+              <option value="name">Sort: Name A–Z</option>
+              <option value="price-asc">Sort: Price, low to high</option>
+              <option value="price-desc">Sort: Price, high to low</option>
+            </select>
+          </div>
+          <div class="product-grid" id="plpGrid" style="padding-bottom:50px;"></div>
+        </div>
+      </div>
     </div>
   `;
+
+  document.getElementById('plpSearch').addEventListener('input', (e) => { plpState.search = e.target.value.toLowerCase(); renderPlpGrid(cat, catSlug); });
+  document.getElementById('plpSort').addEventListener('change', (e) => { plpState.sort = e.target.value; renderPlpGrid(cat, catSlug); });
+  document.getElementById('plpClear').addEventListener('click', () => {
+    plpState.subs.clear(); plpState.materials.clear(); plpState.search = ''; plpState.sort = 'rec';
+    document.getElementById('plpSearch').value = ''; document.getElementById('plpSort').value = 'rec';
+    document.querySelectorAll('.plp-sub,.plp-mat').forEach(cb => cb.checked = false);
+    renderPlpGrid(cat, catSlug);
+  });
+  document.querySelectorAll('.plp-sub').forEach(cb => cb.addEventListener('change', () => {
+    if (cb.checked) plpState.subs.add(cb.value); else plpState.subs.delete(cb.value);
+    renderPlpGrid(cat, catSlug);
+  }));
+  document.querySelectorAll('.plp-mat').forEach(cb => cb.addEventListener('change', () => {
+    if (cb.checked) plpState.materials.add(cb.value); else plpState.materials.delete(cb.value);
+    renderPlpGrid(cat, catSlug);
+  }));
+
+  renderPlpGrid(cat, catSlug);
+  bindLinks();
+}
+
+function renderPlpGrid(cat, catSlug){
+  let entries = Object.entries(DATA).filter(([,p]) => p.cat === cat);
+  if (plpState.subs.size) entries = entries.filter(([,p]) => plpState.subs.has(p.subcat));
+  if (plpState.materials.size) entries = entries.filter(([,p]) => Array.from(plpState.materials).every(m => productHasMaterial(p, m)));
+  if (plpState.search) entries = entries.filter(([,p]) => p.name.toLowerCase().includes(plpState.search));
+  if (plpState.sort === 'name') entries.sort((a,b) => a[1].name.localeCompare(b[1].name));
+  else if (plpState.sort === 'price-asc') entries.sort((a,b) => (cheapestFrom(a[1])??Infinity) - (cheapestFrom(b[1])??Infinity));
+  else if (plpState.sort === 'price-desc') entries.sort((a,b) => (cheapestFrom(b[1])??-Infinity) - (cheapestFrom(a[1])??-Infinity));
+  else entries.sort((a,b) => a[1].name.localeCompare(b[1].name));
+
+  const chips = [];
+  plpState.subs.forEach(s => chips.push(s));
+  plpState.materials.forEach(m => chips.push(m));
+  document.getElementById('plpChips').innerHTML = chips.length
+    ? chips.map(c => `<span class="plp-chip">${esc(c)}<button data-chip="${esc(c)}" aria-label="Remove ${esc(c)} filter">×</button></span>`).join('')
+    : `<span class="plp-chip">All ${esc(cat)}</span>`;
+  document.querySelectorAll('.plp-chips [data-chip]').forEach(btn => btn.addEventListener('click', () => {
+    const v = btn.dataset.chip;
+    plpState.subs.delete(v); plpState.materials.delete(v);
+    document.querySelectorAll('.plp-sub,.plp-mat').forEach(cb => { if (cb.value === v) cb.checked = false; });
+    renderPlpGrid(cat, catSlug);
+  }));
+
+  document.getElementById('plpCount').textContent = entries.length + ' products';
+  const grid = document.getElementById('plpGrid');
+  grid.innerHTML = entries.length ? entries.map(([slug,p]) => productCard(slug,p)).join('') : '<div class="no-results">No products match these filters.</div>';
   bindLinks();
 }
 
