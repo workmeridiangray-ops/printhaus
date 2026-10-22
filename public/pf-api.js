@@ -67,7 +67,13 @@
 
   // ---------- Orders ----------
   async function placeOrder(order) {
-    return call('/api/orders', { method: 'POST', body: order });
+    // One idempotency key per checkout attempt (new each time this
+    // function is called fresh — a retried fetch keeps the same key since
+    // it reuses this same call). Lets the server collapse a double-click,
+    // slow-network retry, or dropped-response resubmit into the single
+    // order it already created, instead of charging/recording twice.
+    const idemKey = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + '-' + Math.random().toString(36).slice(2));
+    return call('/api/orders', { method: 'POST', body: order, headers: { 'X-Idempotency-Key': idemKey } });
   }
 
   async function fetchOrders() {

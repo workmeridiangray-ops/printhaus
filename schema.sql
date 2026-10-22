@@ -201,6 +201,28 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Artwork file uploads (R2-backed). Added via live migration; mirrored here
+-- for fresh deploys.
+CREATE TABLE IF NOT EXISTS uploads (
+  key          TEXT PRIMARY KEY,
+  user_id      INTEGER REFERENCES users(id),
+  filename     TEXT NOT NULL,
+  size_bytes   INTEGER NOT NULL,
+  content_type TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Dedupes a request by a client-generated key (sent as the
+-- X-Idempotency-Key header) so a double-click, network retry, or payment
+-- callback replay can't create a second order for the same submission.
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  key         TEXT PRIMARY KEY,
+  user_id     INTEGER NOT NULL,
+  route       TEXT NOT NULL,
+  order_id    TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_carts_user          ON carts(user_id);
 CREATE INDEX IF NOT EXISTS idx_carts_status         ON carts(status);
 CREATE INDEX IF NOT EXISTS idx_orderevents_order    ON order_events(order_id);
@@ -208,3 +230,4 @@ CREATE INDEX IF NOT EXISTS idx_payments_order       ON payments(order_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status      ON payments(status);
 CREATE INDEX IF NOT EXISTS idx_creditnotes_order    ON credit_notes(order_id);
 CREATE INDEX IF NOT EXISTS idx_proofapprovals_job   ON proof_approvals(job_id);
+CREATE INDEX IF NOT EXISTS idx_idempotency_user     ON idempotency_keys(user_id);

@@ -122,20 +122,26 @@ async function getCalcData(env, request) {
 // server never trusts a client-supplied unit price or subtotal. Returns
 // { unitPrice, lineTotal } or null if the item doesn't resolve to a real
 // catalogue row (unknown slug/size/option, or no pricing at that quantity).
+const MAX_ITEM_QTY = 1_000_000; // sanity ceiling — real catalogue rows top out far below this
+
 function priceItem(calcData, item) {
+  if (!item || typeof item !== 'object') return null;
+  if (!item.slug || typeof item.slug !== 'string') return null;
   const p = calcData[item.slug];
   if (!p) return null;
+  if (!item.size || typeof item.size !== 'string') return null;
   const optMap = p.sizes && p.sizes[item.size];
   if (!optMap) return null;
+
   const qty = Number(item.qty);
-  if (!Number.isFinite(qty) || qty <= 0) return null;
+  if (!Number.isInteger(qty) || qty <= 0 || qty > MAX_ITEM_QTY) return null;
 
   // Find the raw option key whose cleaned label matches what the cart sent.
   const rawKey = Object.keys(optMap).find((k) => cleanOptionLabel(k) === item.opt);
   if (!rawKey) return null;
   const rows = optMap[rawKey];
   const row = rows.find((r) => r[0] === qty);
-  if (!row) return null;
+  if (!row) return null; // quantity not sold at this spec (no slab for it)
 
   const [, unitPrice] = row;
   return { unitPrice, lineTotal: +(unitPrice * qty).toFixed(2) };
@@ -144,14 +150,63 @@ function priceItem(calcData, item) {
 // Recomputes the whole order from the catalogue. Throws (with a user-safe
 // message) if any item doesn't resolve — never silently falls back to the
 // client-supplied numbers.
+// ---------- Status state machines ----------
+// Without these, the admin dashboard's <select> let staff jump an order or
+// job to any status in one click (e.g. Received -> Completed, skipping
+// Processing/Printed/Shipped entirely), which corrupts the record of what
+// actually happened and breaks anything that assumes a normal progression
+// (customer emails, the margin report, automations). Enforced server-side
+// so it can't be bypassed by calling the API directly either.
+const ORDER_STATUS_TRANSITIONS = {
+  Received: ['Processing', 'Cancelled'],
+  Processing: ['Printed', 'Cancelled', 'On Hold'],
+  Printed: ['Shipped', 'Cancelled', 'On Hold'],
+  Shipped: ['Completed', 'Cancelled'],
+  Completed: [], // terminal
+  Cancelled: [], // terminal
+  'On Hold': ['Processing', 'Printed', 'Cancelled']
+};
+
+function isValidOrderTransition(from, to) {
+  if (!from) return true; // no current status on record — allow (defensive)
+  if (from === to) return true; // no-op PATCH (e.g. re-saving tracking/note)
+  const allowed = ORDER_STATUS_TRANSITIONS[from];
+  return Array.isArray(allowed) && allowed.includes(to);
+}
+
+const JOB_STAGE_TRANSITIONS = {
+  Queued: ['Design', 'Prepress', 'Printing', 'On Hold', 'Cancelled'],
+  Design: ['Prepress', 'On Hold', 'Cancelled'],
+  Prepress: ['Printing', 'On Hold', 'Cancelled'],
+  Printing: ['Finishing', 'On Hold', 'Cancelled'],
+  Finishing: ['QC', 'On Hold', 'Cancelled'],
+  QC: ['Ready', 'Finishing', 'On Hold', 'Cancelled'], // QC can bounce back to Finishing on fail
+  Ready: ['Dispatched', 'On Hold', 'Cancelled'],
+  Dispatched: ['Delivered', 'On Hold'],
+  Delivered: [], // terminal
+  Cancelled: [], // terminal
+  'On Hold': ['Queued', 'Design', 'Prepress', 'Printing', 'Finishing', 'QC', 'Ready', 'Cancelled']
+};
+
+function isValidJobTransition(from, to) {
+  if (!from) return true;
+  if (from === to) return true;
+  const allowed = JOB_STAGE_TRANSITIONS[from];
+  return Array.isArray(allowed) && allowed.includes(to);
+}
+
+const MAX_ORDER_ITEMS = 100; // sanity ceiling on cart size per order
+
 async function priceOrder(env, request, items) {
+  if (!Array.isArray(items) || !items.length) throw new Error('No items in order.');
+  if (items.length > MAX_ORDER_ITEMS) throw new Error(`Orders are limited to ${MAX_ORDER_ITEMS} items — please split this into multiple orders.`);
   const calcData = await getCalcData(env, request);
   if (!calcData) throw new Error('Pricing data is temporarily unavailable — please try again.');
   let subtotal = 0;
   const priced = [];
   for (const item of items) {
     const p = priceItem(calcData, item);
-    if (!p) throw new Error(`Could not verify the price for "${item.name || item.slug}" — please re-select it and try again.`);
+    if (!p) throw new Error(`Could not verify the price for "${item && item.name || (item && item.slug) || 'an item'}" — please re-select it and try again.`);
     subtotal += p.lineTotal;
     priced.push({ ...item, unit: p.unitPrice });
   }
@@ -196,6 +251,22 @@ function randomToken() {
   return Array.from(crypto.getRandomValues(new Uint8Array(24)))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+// Collision-resistant IDs for orders/payments/quotes/credit-notes/jobs.
+// Replaces the old `'PF-' + Date.now().toString().slice(-8)` pattern, which
+// truncates to the last 8 digits of the millisecond timestamp — two
+// requests landing in the same millisecond (realistic under any concurrent
+// load, e.g. a retried request racing the original) could collide and one
+// INSERT would silently overwrite or conflict with the other. A short
+// random suffix from crypto.getRandomValues makes collision astronomically
+// unlikely while keeping IDs short and readable.
+function newId(prefix) {
+  const rand = Array.from(crypto.getRandomValues(new Uint8Array(5)))
+    .map((b) => b.toString(36).padStart(2, '0'))
+    .join('')
+    .slice(0, 8);
+  return `${prefix}-${Date.now().toString(36)}${rand}`.toUpperCase();
 }
 
 async function getUserFromToken(db, token) {
@@ -358,6 +429,21 @@ export default {
         const { customer, phone, address, note, items } = body;
         if (!customer || !address || !Array.isArray(items) || !items.length) return err('customer, address, and items are required');
 
+        // Idempotency: the client sends a key (one per checkout attempt —
+        // see pf-api.js placeOrder) in X-Idempotency-Key. A double-click,
+        // browser retry, or flaky-connection resubmit reuses the same key,
+        // so we return the order that was already created instead of
+        // making a second one. Without a key, every submit is treated as
+        // its own attempt (back-compat for any caller that doesn't send one).
+        const idemKey = request.headers.get('X-Idempotency-Key');
+        if (idemKey) {
+          const existing = await db.prepare('SELECT order_id FROM idempotency_keys WHERE key = ? AND user_id = ?').bind(idemKey, user.id).first();
+          if (existing && existing.order_id) {
+            const o = await db.prepare('SELECT id, subtotal, gst, total FROM orders WHERE id = ?').bind(existing.order_id).first();
+            if (o) return json({ ok: true, order: o, duplicate: true });
+          }
+        }
+
         // Prices, GST and total are never taken from the client — they are
         // recomputed from the catalogue here so a tampered request body
         // can't produce an order at an arbitrary price.
@@ -368,17 +454,29 @@ export default {
           return err(e.message, 422);
         }
 
-        const id = 'PF-' + Date.now().toString().slice(-8);
-        await db
-          .prepare('INSERT INTO orders (id, user_id, customer, phone, address, note, subtotal, gst, total, status) VALUES (?,?,?,?,?,?,?,?,?,?)')
-          .bind(id, user.id, customer, phone || '', address, note || '', priced.subtotal, priced.gst, priced.total, 'Received')
-          .run();
-        for (const i of priced.items) {
-          await db
-            .prepare('INSERT INTO order_items (order_id, slug, name, size, opt, qty, unit_price, artwork_key) VALUES (?,?,?,?,?,?,?,?)')
-            .bind(id, i.slug, i.name, i.size || '', i.opt || '', i.qty, i.unit, i.artworkKey || null)
-            .run();
+        const id = newId('PF');
+
+        // Atomic: the order row and every item row commit together in one
+        // D1 batch, or none of them do. Previously these were separate
+        // .run() calls in a loop — a crash or hiccup partway through the
+        // loop could leave an order with some items missing and no way to
+        // tell from the order record alone.
+        const statements = [
+          db.prepare('INSERT INTO orders (id, user_id, customer, phone, address, note, subtotal, gst, total, status) VALUES (?,?,?,?,?,?,?,?,?,?)')
+            .bind(id, user.id, customer, phone || '', address, note || '', priced.subtotal, priced.gst, priced.total, 'Received'),
+          ...priced.items.map((i) =>
+            db.prepare('INSERT INTO order_items (order_id, slug, name, size, opt, qty, unit_price, artwork_key) VALUES (?,?,?,?,?,?,?,?)')
+              .bind(id, i.slug, i.name, i.size || '', i.opt || '', i.qty, i.unit, i.artworkKey || null)
+          )
+        ];
+        if (idemKey) {
+          statements.push(
+            db.prepare('INSERT OR REPLACE INTO idempotency_keys (key, user_id, route, order_id) VALUES (?,?,?,?)')
+              .bind(idemKey, user.id, '/api/orders', id)
+          );
         }
+        await db.batch(statements);
+
         return json({ ok: true, order: { id, subtotal: priced.subtotal, gst: priced.gst, total: priced.total } });
       }
 
@@ -477,7 +575,7 @@ export default {
         const body = await request.json();
         const { company, name, email, whatsapp, department, orderNumber, message, product } = body;
         if (!name || !email || !message) return err('name, email, and message are required');
-        const id = 'Q-' + Date.now().toString().slice(-8);
+        const id = newId('Q');
         await db
           .prepare('INSERT INTO quotes (id, company, name, email, whatsapp, department, order_number, message, product) VALUES (?,?,?,?,?,?,?,?,?)')
           .bind(id, company || '', name, email, whatsapp || '', department || '', orderNumber || '', message, product || null)
@@ -530,6 +628,12 @@ export default {
         if (!adminOk) return err('Unauthorized', 401);
         const { status, tracking, note } = await request.json();
         if (!status) return err('status is required');
+        if (!ORDER_STATUS_TRANSITIONS.hasOwnProperty(status)) return err(`Unknown status "${status}"`, 422);
+        const current = await db.prepare('SELECT status FROM orders WHERE id = ?').bind(orderStatusMatch[1]).first();
+        if (!current) return err('Order not found', 404);
+        if (!isValidOrderTransition(current.status, status)) {
+          return err(`Cannot move an order from "${current.status}" to "${status}" — allowed next steps: ${ORDER_STATUS_TRANSITIONS[current.status].join(', ') || 'none (terminal status)'}`, 422);
+        }
         await db.prepare('UPDATE orders SET status = ? WHERE id = ?').bind(status, orderStatusMatch[1]).run();
         await logOrderEvent(db, env, orderStatusMatch[1], status, tracking, note);
         await logActivity(db, 'admin', 'order-status', `${orderStatusMatch[1]} -> ${status}`);
@@ -577,7 +681,7 @@ export default {
         const { orderId, kind, amount } = await request.json();
         if (!orderId || !kind || !amount) return err('orderId, kind, and amount are required');
         if (kind !== 'advance' && kind !== 'balance') return err('kind must be "advance" or "balance"');
-        const id = 'PAY-' + Date.now().toString().slice(-8);
+        const id = newId('PAY');
         const payLink = createPayLink(env, id, amount);
         await db.prepare('INSERT INTO payments (id, order_id, kind, amount, pay_link) VALUES (?,?,?,?,?)')
           .bind(id, orderId, kind, amount, payLink).run();
@@ -637,7 +741,7 @@ export default {
         if (mode === 'IGST') igst = +(taxableAmount * rate / 100).toFixed(2);
         else { cgst = +(taxableAmount * rate / 200).toFixed(2); sgst = cgst; }
         const total = +(taxableAmount + cgst + sgst + igst).toFixed(2);
-        const id = 'CN-' + Date.now().toString().slice(-8);
+        const id = newId('CN');
         await db.prepare(
           `INSERT INTO credit_notes (id, order_id, reason, taxable_amount, gst_mode, gst_rate, cgst, sgst, igst, total)
            VALUES (?,?,?,?,?,?,?,?,?,?)`
@@ -674,7 +778,7 @@ export default {
         const { sourceType, sourceId, title, customerName, customerEmail, priority, dueDate, materialCost, laborCost, overheadCost, quotedPrice, notes } = body;
         if (!sourceType || !sourceId || !title) return err('sourceType, sourceId, and title are required');
         if (sourceType !== 'order' && sourceType !== 'quote') return err('sourceType must be "order" or "quote"');
-        const id = 'JOB-' + Date.now().toString().slice(-8);
+        const id = newId('JOB');
         await db
           .prepare(
             `INSERT INTO job_orders
@@ -707,6 +811,14 @@ export default {
           stage: 'stage', priority: 'priority', dueDate: 'due_date', materialCost: 'material_cost',
           laborCost: 'labor_cost', overheadCost: 'overhead_cost', quotedPrice: 'quoted_price', notes: 'notes'
         };
+        if (body.stage !== undefined) {
+          if (!JOB_STAGE_TRANSITIONS.hasOwnProperty(body.stage)) return err(`Unknown stage "${body.stage}"`, 422);
+          const current = await db.prepare('SELECT stage FROM job_orders WHERE id = ?').bind(jobId).first();
+          if (!current) return err('Job order not found', 404);
+          if (!isValidJobTransition(current.stage, body.stage)) {
+            return err(`Cannot move a job from "${current.stage}" to "${body.stage}" — allowed next steps: ${JOB_STAGE_TRANSITIONS[current.stage].join(', ') || 'none (terminal stage)'}`, 422);
+          }
+        }
         const sets = [];
         const values = [];
         for (const [key, col] of Object.entries(fieldMap)) {
@@ -766,11 +878,53 @@ export default {
       if (proofGetMatch && request.method === 'PATCH') {
         const { status, customerNote } = await request.json();
         if (!status || (status !== 'Approved' && status !== 'Changes Requested')) return err('status must be "Approved" or "Changes Requested"');
-        const row = await db.prepare('SELECT job_id FROM proof_approvals WHERE token = ?').bind(proofGetMatch[1]).first();
+        const row = await db.prepare('SELECT token, job_id, status AS current_status, created_at FROM proof_approvals WHERE token = ?').bind(proofGetMatch[1]).first();
         if (!row) return err('Not found', 404);
+
+        // Already responded — a reload, resubmit, or stale tab must not
+        // flip a finalized decision (e.g. Approved -> Changes Requested
+        // after production has already started on the approved version).
+        if (row.current_status !== 'Pending') {
+          return err(`This proof was already marked "${row.current_status}" and can't be changed. Ask us to send a new proof if you need to.`, 409);
+        }
+
+        // Superseded — if a newer proof token exists for the same job (we
+        // sent a revised proof after this one), this older link is stale
+        // and must not be actionable even if it was never explicitly
+        // responded to.
+        const newer = await db.prepare('SELECT token FROM proof_approvals WHERE job_id = ? AND created_at > ? LIMIT 1').bind(row.job_id, row.created_at).first();
+        if (newer) {
+          return err('This proof link has been replaced by a newer one. Please use the latest proof link we sent you.', 409);
+        }
+
         await db.prepare("UPDATE proof_approvals SET status = ?, customer_note = ?, responded_at = datetime('now') WHERE token = ?")
           .bind(status, customerNote || null, proofGetMatch[1]).run();
+
         if (status === 'Approved') {
+          // Readiness check: for an order-sourced job with payment records,
+          // at least the advance must be Paid before approval can move
+          // production forward. Previously this moved straight to Printing
+          // on approval alone — a customer link reaching "Approved" was
+          // enough to start production even if nothing had been paid.
+          // Quote-sourced jobs and order-sourced jobs with no payment
+          // records at all (not every job requires an upfront payment) are
+          // left to proceed as before — this only blocks the case where
+          // payment IS expected and hasn't happened.
+          const job = await db.prepare('SELECT source_type, source_id FROM job_orders WHERE id = ?').bind(row.job_id).first();
+          let blocked = false;
+          if (job && job.source_type === 'order') {
+            const payments = await db.prepare('SELECT status FROM payments WHERE order_id = ?').bind(job.source_id).all();
+            if (payments.results.length) {
+              const advancePaid = payments.results.some((p) => p.status === 'Paid');
+              if (!advancePaid) blocked = true;
+            }
+          }
+          if (blocked) {
+            await db.prepare('INSERT INTO job_order_events (job_id, stage, note) VALUES (?,?,?)')
+              .bind(row.job_id, 'On Hold', 'Proof approved by customer, but held — payment not yet received').run();
+            await db.prepare("UPDATE job_orders SET stage = 'On Hold', updated_at = datetime('now') WHERE id = ?").bind(row.job_id).run();
+            return json({ ok: true, held: true, reason: 'payment-pending' });
+          }
           await db.prepare("UPDATE job_orders SET stage = 'Printing', updated_at = datetime('now') WHERE id = ?").bind(row.job_id).run();
           await db.prepare('INSERT INTO job_order_events (job_id, stage, note) VALUES (?,?,?)').bind(row.job_id, 'Printing', 'Proof approved by customer').run();
         }
