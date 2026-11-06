@@ -122,3 +122,18 @@ automation or manual review step) — not something this client-side file
 should do directly against production data. `erpnext-client.js` creates the
 Sales Order; the Work Order / production step is intentionally left to
 ERPNext's own tools.
+
+## Category tree, menu and filters
+
+The catalogue only has two levels (`cat`, `subcat`), so `public/taxonomy.json` places every product in a
+Category > Subcategory > Group tree used by the menu, breadcrumbs and category pages. Edit the rules in
+`tools/build-taxonomy.py` and regenerate with:
+
+```bash
+python3 tools/build-taxonomy.py public/calc-data.json public/taxonomy.json
+```
+
+Products missing from `taxonomy.json` (e.g. added later in the admin) fall back to their `subcat`, so they still appear.
+Filters (material, shape, quality, finish, paper weight, sides, format, corners, price) are derived from each product's
+real option strings in `public/storefront.js`. Category URLs look like `#c/<category>/<subcategory>/<group>?material=...`;
+the old `#cat-...` links redirect.

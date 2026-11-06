@@ -403,10 +403,8 @@ table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:mi
 <div class="topbar"><span>☎ +91 98765 43210</span><span>✉ info@printhausindia.com</span><span class="top-address">⌖ Pan-India, 34 branches</span><span>f　◎　in</span></div>
 <header class="nav wrap">
   <a class="logo" href="#home" data-link><span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 40 40" width="24" height="24" fill="none"><path d="M9 6h15a9 9 0 0 1 0 18H15v10H9V6Zm6 6v6h9a3 3 0 0 0 0-6h-9Z" fill="currentColor"/></svg></span><span>Print<span class="dot">Haus</span><small>PRINT IDEAS TO LIFE</small></span></a>
-  <button class="menu-toggle" aria-label="Toggle menu" id="menuToggle">☰</button>
-  <form class="header-search" id="headerSearch" role="search"><input id="globalSearch" aria-label="Search all print products" placeholder="Search 225 print products"><button aria-label="Search" type="submit">Search →</button></form><nav class="navlinks" id="navLinks" aria-label="Product categories">
-    <div class="nav-cat-links" id="navCatLinks"></div>
-  </nav>
+  <button class="menu-toggle" aria-label="Open menu" id="menuToggle" aria-haspopup="dialog"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <form class="header-search" id="headerSearch" role="search"><input id="globalSearch" aria-label="Search all print products" placeholder="Search 225 print products"><button aria-label="Search" type="submit">Search →</button></form>
   <div class="nav-icons">
     <div class="nav-drop account-drop">
       <a class="nav-icon-btn account-btn" href="#account" data-link aria-label="Account" id="accountIconBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span class="account-label" id="accountLabel">Login</span></a>
@@ -422,6 +420,7 @@ table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:mi
     <a class="nav-icon-btn" href="#cart" data-link aria-label="Cart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg><span class="badge-n" id="cartBadge" style="display:none">0</span></a>
   </div>
   <a class="button button-small" href="#quote" data-link>Request a Quote</a>
+  <nav class="pf-catbar" id="pfCatbar" aria-label="Product categories"></nav>
 </header>
 
 <div id="notice" class="notice" aria-live="polite"></div>
@@ -443,6 +442,7 @@ table td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:mi
   <div class="copyright"><div class="wrap">© 2026 Print Haus. <span><a href="#privacy" data-link>Privacy Policy</a>　 <a href="#terms" data-link>Terms of Service</a></span></div></div>
 </footer>
 
+<link rel="stylesheet" href="storefront.css">
 <script src="pf-api.js"></script>
 <script>
 let DATA = null;
@@ -539,36 +539,18 @@ async function loadData(){
     data = await res.json();
   }
   DATA = data;
-  CATS = Array.from(new Set(Object.values(DATA).map(p => p.cat))).sort();
-  CAT_SUBCATS = {};
-  CATS.forEach(c => {
-    const subs = new Set();
-    Object.values(DATA).forEach(p => { if (p.cat === c && p.subcat && p.subcat !== c) subs.add(p.subcat); });
-    CAT_SUBCATS[c] = Array.from(subs).sort();
-  });
-  renderNavCats();
+  await loadTaxonomy();
+  buildTaxonomy();
+  renderNav();
   renderFootCats();
   updateBadges();
   syncAccountIcon();
-  document.getElementById('menuToggle').addEventListener('click', () => document.getElementById('navLinks').classList.toggle('open'));
   document.getElementById('accountLogoutLink').addEventListener('click', async (e) => {
     e.preventDefault();
     await window.PFApi.logout();
     syncAccountIcon();
     notify('You have logged out.');
     location.hash = 'home';
-  });
-  document.getElementById('navCatLinks').addEventListener('click', (e) => {
-    if (window.innerWidth > 650) return;
-    const drop = e.target.closest('.nav-drop');
-    if (!drop) return;
-    const link = e.target.closest('a');
-    // On mobile, tapping a top-level category/More link with a submenu expands it in place
-    // instead of navigating, unless it's a real sub-item link (those should navigate).
-    if (link && (link.querySelector('.caret') || link.textContent.trim().startsWith('More')) && drop.querySelector('.mega,.cat-mega')){
-      e.preventDefault();
-      drop.classList.toggle('open');
-    }
   });
   document.getElementById('accountIconBtn').addEventListener('click', (e) => {
     if (window.innerWidth > 900 || !getSession()) return; // desktop uses hover; signed-out goes straight to login
@@ -583,96 +565,6 @@ async function loadData(){
   router();
 }
 
-// Pull distinct "material-ish" tokens out of a category's real option strings, e.g.
-// "Select Shape: Arch | Quality: Basic | Select Material: Kraft Paper" -> "Kraft Paper".
-// Looks for segments whose label mentions material/paper/finish, falls back to nothing
-// (categories with no such field just get a thinner menu — no invented values).
-const MATERIAL_WORDS = ['material', 'paper', 'finish', 'stock'];
-function materialTokensForCat(cat){
-  const seen = new Set();
-  Object.values(DATA).forEach(p => {
-    if (p.cat !== cat) return;
-    Object.values(p.sizes).forEach(optMap => Object.keys(optMap).forEach(raw => {
-      if (raw === '(default)') return;
-      raw.split('|').forEach(seg => {
-        const idx = seg.indexOf(':');
-        if (idx === -1) return;
-        const label = seg.slice(0, idx).toLowerCase();
-        if (!MATERIAL_WORDS.some(w => label.includes(w))) return;
-        const val = seg.slice(idx + 1).trim();
-        if (val && val.length < 28) seen.add(val);
-      });
-    }));
-  });
-  return Array.from(seen).sort();
-}
-
-function navChevron(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>'; }
-
-// Builds one <nav-drop> for a category: a generic 3-column mega-menu (By product / By
-// material / By use) assembled from real CATS/CAT_SUBCATS/DATA — not hardcoded per category.
-// "By product" and "By use" both draw on the category's real subcategories (there's no
-// separate use-case field in the data, so subcats do double duty, same list for thinner cats).
-// Degrades gracefully: a category with no derivable material tokens just skips that column.
-function buildCatMegaMenu(cat){
-  const catSlug = slugifyCat(cat);
-  const subs = (CAT_SUBCATS[cat] || []).filter(s => s !== 'Ready to Buy' && s !== 'New Arrivals' && s !== 'Bulk');
-  const byProduct = subs.slice(0, 6);
-  const materials = materialTokensForCat(cat).slice(0, 6);
-  const byUse = subs.slice(6, 12);
-  const cols = [];
-  if (byProduct.length) cols.push({ title: 'By product', items: byProduct, deep: true });
-  if (materials.length) cols.push({ title: 'By material', items: materials, deep: false });
-  if (byUse.length && byUse !== byProduct) cols.push({ title: 'By use', items: byUse, deep: true });
-  if (!cols.length) return ''; // nothing to show beyond the plain category link — no mega-menu
-
-  const colHtml = cols.map(col => `
-    <div class="cat-mega-col"><h5>${esc(col.title)}</h5>
-      ${col.items.map(item => col.deep
-        ? `<a href="#cat-${catSlug}-sub-${slugifyCat(item)}" data-link>${esc(item)}${navChevron()}</a>`
-        : `<a href="#cat-${catSlug}-mat-${encodeURIComponent(item)}" data-link>${esc(item)}</a>`
-      ).join('')}
-    </div>`).join('');
-
-  return `<div class="cat-mega" style="--cols:${cols.length}">
-    <div class="cat-mega-cols">
-      ${colHtml}
-      <div class="cat-mega-promo">
-        <div class="imgph">${PH(cat)}</div>
-        <b>Find your perfect ${esc(cat.toLowerCase())}</b>
-        <a class="shop-all" href="#cat-${catSlug}" data-link>Shop all ${esc(cat)} →</a>
-      </div>
-      <div class="cat-mega-ask">Not sure what to choose? <a href="#quote" data-link>Ask our print team →</a></div>
-    </div>
-  </div>`;
-}
-
-function renderNavCats(){
-  const DIRECT_COUNT = 4;
-  // Show the categories with the richest mega-menus (most products) first, so the nav's
-  // real estate goes to categories shoppers are most likely to browse via dropdown.
-  const byCount = CATS.slice().sort((a,b) => {
-    const ca = Object.values(DATA).filter(p => p.cat === a).length;
-    const cb = Object.values(DATA).filter(p => p.cat === b).length;
-    return cb - ca;
-  });
-  const direct = byCount.slice(0, DIRECT_COUNT).sort((a,b) => CATS.indexOf(a) - CATS.indexOf(b));
-  const rest = CATS.filter(c => !direct.includes(c));
-  const directLinks = direct.map(c => {
-    const mega = buildCatMegaMenu(c);
-    if (!mega) return `<a href="#cat-${slugifyCat(c)}" data-link>${esc(c)}</a>`;
-    return `<div class="nav-drop"><a href="#cat-${slugifyCat(c)}" data-link>${esc(c)}<span class="caret">▾</span></a>${mega}</div>`;
-  }).join('');
-  let moreDrop = '';
-  if (rest.length){
-    const mega = rest.map(c => `<a href="#cat-${slugifyCat(c)}" data-link>${esc(c)}</a>`).join('') + `<a class="all-link" href="#shop" data-link>Shop All Products →</a>`;
-    moreDrop = `<div class="nav-drop"><a href="#shop" data-link>More ▾</a><div class="mega">${mega}</div></div>`;
-  }
-  document.getElementById('navCatLinks').innerHTML = `<a href="#shop" data-link>Products</a>${directLinks}${moreDrop}`;
-}
-function renderFootCats(){
-  document.getElementById('footCats').innerHTML = CATS.slice(0,6).map(c => `<a href="#cat-${slugifyCat(c)}" data-link>${esc(c)}</a>`).join('');
-}
 
 function cheapestFrom(p){
   let min = Infinity;
@@ -681,10 +573,12 @@ function cheapestFrom(p){
 }
 
 function router(){
-  document.getElementById('navLinks').classList.remove('open');
+  closeDrawer(); closeNavPanels(); closeFilters();
+  window.scrollTo({ top: 0, behavior: 'instant' });
   const hash = location.hash.replace(/^#/, '') || 'home';
   if (hash === 'home') return renderHome();
-  if (hash === 'shop') return renderShop();
+  if (hash === 'shop') { history.replaceState(null, '', '#c'); return routeListing('c'); }
+  if (hash === 'c' || hash.startsWith('c/') || hash.startsWith('c?')) return routeListing(hash);
   if (hash === 'wishlist') return renderWishlist();
   if (hash === 'cart') return renderCart();
   if (hash === 'signin' || hash === 'account') return renderAccount();
@@ -702,7 +596,7 @@ function router(){
   if (hash === 'terms') return renderPolicy('terms');
   if (hash === 'privacy') return renderPolicy('privacy');
   if (hash.startsWith('proof-')) return renderProofApproval(hash.slice(6));
-  if (hash.startsWith('cat-')) return renderCategory(hash.slice(4));
+  if (hash.startsWith('cat-')) return legacyCat(hash.slice(4));
   if (hash.startsWith('product-')) return renderProduct(hash.slice(8));
   renderHome();
 }
@@ -716,7 +610,7 @@ function imageKey(label){
  if(/business.card|visiting.card|cards.stationery/.test(t)) return 'cards';
  return 'brand';
 }
-const PH = label => `<div class="print-photo"><img src="assets/${imageKey(label)}.png" alt="Illustrative ${esc(label)} print collection" loading="lazy"><span class="photo-caption">Illustrative collection</span></div>`;
+const PH = (label, ctx='') => `<div class="print-photo"><img src="assets/${imageKey(ctx+' '+label)}.png" alt="Illustrative ${esc(label)} print collection" loading="lazy"><span class="photo-caption">Illustrative collection</span></div>`;
 let globalQuery = '';
 
 function wishBtn(slug){
@@ -762,7 +656,7 @@ function renderHome(){
     <section class="section wrap" style="padding-top:0;">
       <div class="row-head"><div class="section-heading"><h2>What are we printing today?</h2></div><a class="view-all" href="#shop" data-link>View all products →</a></div>
       <div class="tile-row" style="margin-top:18px;">
-        ${tileCats.map(c => `<a class="cat-tile" href="#cat-${slugifyCat(c)}" data-link>${PH(c)}<b>${esc(c)}</b><small>${catCounts[c]} products →</small></a>`).join('')}
+        ${tileCats.map(c => `<a class="cat-tile" href="${catHref(c)}" data-link>${PH(c)}<b>${esc(catLabel(c))}</b><small>${catCounts[c]} products →</small></a>`).join('')}
       </div>
     </section>
 
@@ -782,7 +676,7 @@ function renderHome(){
 
     <section class="section wrap" style="padding-top:0;">
       <div class="section-heading"><span class="eyebrow">BROWSE</span><h2>Shop by Category</h2><p>${CATS.length} categories, ${Object.keys(DATA).length} products priced live.</p></div>
-      <div class="cat-grid">${CATS.map(c => `<a class="cat-tile" href="#cat-${slugifyCat(c)}" data-link><b>${esc(c)}</b><small>${catCounts[c]} products</small></a>`).join('')}</div>
+      <div class="cat-grid">${CATS.map(c => `<a class="cat-tile" href="${catHref(c)}" data-link><b>${esc(catLabel(c))}</b><small>${catCounts[c]} products</small></a>`).join('')}</div>
     </section>
 
     <section class="custom-banner"><div class="wrap custom-inner">
@@ -805,166 +699,6 @@ function renderHome(){
   bindLinks();
 }
 
-// Per-render filter state for the category/PLP page. Reset whenever a new category renders.
-let plpState = { subs: new Set(), materials: new Set(), search: '', sort: 'rec' };
-
-// Which of a product's real option strings mention a given material token.
-function productHasMaterial(p, token){
-  return Object.values(p.sizes).some(optMap => Object.keys(optMap).some(raw => raw.includes(token)));
-}
-
-function renderCategory(rawSlug){
-  let catSlug = rawSlug, subSlug = null, initialMaterial = null;
-  const matIdx = rawSlug.indexOf('-mat-');
-  if(matIdx !== -1){ initialMaterial = decodeURIComponent(rawSlug.slice(matIdx+5)); catSlug=rawSlug.slice(0,matIdx); }
-  const subIdx = rawSlug.indexOf('-sub-');
-  if (subIdx !== -1){ catSlug = rawSlug.slice(0, subIdx); subSlug = rawSlug.slice(subIdx + 5); }
-  const cat = CATS.find(c => slugifyCat(c) === catSlug);
-  const view = document.getElementById('view');
-  if (!cat){ view.innerHTML = '<div class="wrap no-data">Category not found.</div>'; return; }
-  const subs = CAT_SUBCATS[cat] || [];
-  const activeSub = subSlug ? subs.find(s => slugifyCat(s) === subSlug) : null;
-  const materials = materialTokensForCat(cat);
-  plpState = { subs: new Set(activeSub ? [activeSub] : []), materials: new Set(initialMaterial ? [initialMaterial] : []), search: '', sort: 'rec' };
-
-  view.innerHTML = `
-    <div class="wrap">
-      <div class="breadcrumbs"><a href="#home" data-link>Home</a>　›　${esc(cat)}</div>
-      <div class="page-title"><h1>${esc(cat)}</h1><div class="count" id="plpCount"></div></div>
-      <p style="color:var(--muted);font-size:14px;margin:-6px 0 20px;">A little detail. A big brand impression.</p>
-      <div class="plp-layout">
-        <div class="plp-rail">
-          <div class="plp-rail-head"><h4>Filters</h4><button id="plpClear">Clear filters</button></div>
-          <div class="plp-chips" id="plpChips"></div>
-          ${subs.length ? `<details class="plp-group" open><summary>Product type</summary>
-            ${subs.map(s => `<label><input type="checkbox" class="plp-sub" value="${esc(s)}" ${plpState.subs.has(s)?'checked':''}> ${esc(s)}</label>`).join('')}
-          </details>` : ''}
-          ${materials.length ? `<details class="plp-group"><summary>Material</summary>
-            ${materials.map(m => `<label><input type="checkbox" class="plp-mat" value="${esc(m)}" ${plpState.materials.has(m)?'checked':''}> ${esc(m)}</label>`).join('')}
-          </details>` : ''}
-
-        </div>
-        <div>
-          <div class="plp-main-head">
-            <input class="plp-search" id="plpSearch" placeholder="Search within ${esc(cat)}">
-            <select class="plp-sort" id="plpSort">
-              <option value="rec">Sort: Recommended</option>
-              <option value="name">Sort: Name A–Z</option>
-              <option value="price-asc">Sort: Price, low to high</option>
-              <option value="price-desc">Sort: Price, high to low</option>
-            </select>
-          </div>
-          <div class="product-grid" id="plpGrid" style="padding-bottom:50px;"></div>
-        </div>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('plpSearch').addEventListener('input', (e) => { plpState.search = e.target.value.toLowerCase(); renderPlpGrid(cat, catSlug); });
-  document.getElementById('plpSort').addEventListener('change', (e) => { plpState.sort = e.target.value; renderPlpGrid(cat, catSlug); });
-  document.getElementById('plpClear').addEventListener('click', () => {
-    plpState.subs.clear(); plpState.materials.clear(); plpState.search = ''; plpState.sort = 'rec';
-    document.getElementById('plpSearch').value = ''; document.getElementById('plpSort').value = 'rec';
-    document.querySelectorAll('.plp-sub,.plp-mat').forEach(cb => cb.checked = false);
-    renderPlpGrid(cat, catSlug);
-  });
-  document.querySelectorAll('.plp-sub').forEach(cb => cb.addEventListener('change', () => {
-    if (cb.checked) plpState.subs.add(cb.value); else plpState.subs.delete(cb.value);
-    renderPlpGrid(cat, catSlug);
-  }));
-  document.querySelectorAll('.plp-mat').forEach(cb => cb.addEventListener('change', () => {
-    if (cb.checked) plpState.materials.add(cb.value); else plpState.materials.delete(cb.value);
-    renderPlpGrid(cat, catSlug);
-  }));
-
-  renderPlpGrid(cat, catSlug);
-  bindLinks();
-}
-
-function renderPlpGrid(cat, catSlug){
-  let entries = Object.entries(DATA).filter(([,p]) => p.cat === cat);
-  if (plpState.subs.size) entries = entries.filter(([,p]) => plpState.subs.has(p.subcat));
-  if (plpState.materials.size) entries = entries.filter(([,p]) => Array.from(plpState.materials).every(m => productHasMaterial(p, m)));
-  if (plpState.search) entries = entries.filter(([,p]) => p.name.toLowerCase().includes(plpState.search));
-  if (plpState.sort === 'name') entries.sort((a,b) => a[1].name.localeCompare(b[1].name));
-  else if (plpState.sort === 'price-asc') entries.sort((a,b) => (cheapestFrom(a[1])??Infinity) - (cheapestFrom(b[1])??Infinity));
-  else if (plpState.sort === 'price-desc') entries.sort((a,b) => (cheapestFrom(b[1])??-Infinity) - (cheapestFrom(a[1])??-Infinity));
-  else entries.sort((a,b) => a[1].name.localeCompare(b[1].name));
-
-  const chips = [];
-  plpState.subs.forEach(s => chips.push(s));
-  plpState.materials.forEach(m => chips.push(m));
-  document.getElementById('plpChips').innerHTML = chips.length
-    ? chips.map(c => `<span class="plp-chip">${esc(c)}<button data-chip="${esc(c)}" aria-label="Remove ${esc(c)} filter">×</button></span>`).join('')
-    : `<span class="plp-chip">All ${esc(cat)}</span>`;
-  document.querySelectorAll('.plp-chips [data-chip]').forEach(btn => btn.addEventListener('click', () => {
-    const v = btn.dataset.chip;
-    plpState.subs.delete(v); plpState.materials.delete(v);
-    document.querySelectorAll('.plp-sub,.plp-mat').forEach(cb => { if (cb.value === v) cb.checked = false; });
-    renderPlpGrid(cat, catSlug);
-  }));
-
-  document.getElementById('plpCount').textContent = entries.length + ' products';
-  const grid = document.getElementById('plpGrid');
-  grid.innerHTML = entries.length ? entries.map(([slug,p]) => productCard(slug,p)).join('') : '<div class="no-results">No products match these filters.</div>';
-  bindLinks();
-}
-
-let shopFilterCats = new Set();
-let shopSort = 'name';
-
-function renderShop(){
-  const view = document.getElementById('view');
-  view.innerHTML = `
-    <div class="wrap">
-      <div class="breadcrumbs"><a href="#home" data-link>Home</a>　›　Shop All</div>
-      <div class="page-title"><h1>All Products</h1><div class="count" id="shopCount"></div></div>
-      <div class="shop-layout">
-        <div class="filter-panel">
-          <h4>CATEGORY</h4>
-          <div id="filterCats">${CATS.map(c => `<label><input type="checkbox" value="${esc(c)}" ${shopFilterCats.has(c)?'checked':''}> ${esc(c)}</label>`).join('')}</div>
-          <button class="filter-clear" id="filterClear">Clear filters</button>
-        </div>
-        <div>
-          <div class="sort-bar">
-            <input class="plp-search" id="shopSearch" aria-label="Search products" placeholder="Search products"><span id="shopCount2"></span>
-            <select id="sortSel">
-              <option value="name">Sort: Name A–Z</option>
-              <option value="price-asc">Sort: Price, low to high</option>
-              <option value="price-desc">Sort: Price, high to low</option>
-            </select>
-          </div>
-          <div class="product-grid" id="shopGrid"></div>
-        </div>
-      </div>
-    </div>
-  `;
-  document.getElementById('shopSearch').value=globalQuery;
-  document.getElementById('shopSearch').oninput=e=>{globalQuery=e.target.value.toLowerCase().trim();renderShopGrid();};
-  document.getElementById('sortSel').value = shopSort;
-  document.getElementById('sortSel').addEventListener('change', (e) => { shopSort = e.target.value; renderShopGrid(); });
-  document.getElementById('filterClear').addEventListener('click', () => { shopFilterCats = new Set(); renderShop(); });
-  document.querySelectorAll('#filterCats input').forEach(cb => {
-    cb.addEventListener('change', () => { if (cb.checked) shopFilterCats.add(cb.value); else shopFilterCats.delete(cb.value); renderShopGrid(); });
-  });
-  renderShopGrid();
-  bindLinks();
-}
-
-function renderShopGrid(){
-  let entries = Object.entries(DATA);
-  if(globalQuery) entries=entries.filter(([,p])=>(p.name+' '+p.cat+' '+p.subcat).toLowerCase().includes(globalQuery));
-  if (shopFilterCats.size) entries = entries.filter(([,p]) => shopFilterCats.has(p.cat));
-  if (shopSort === 'name') entries.sort((a,b) => a[1].name.localeCompare(b[1].name));
-  else if (shopSort === 'price-asc') entries.sort((a,b) => (cheapestFrom(a[1])??Infinity) - (cheapestFrom(b[1])??Infinity));
-  else if (shopSort === 'price-desc') entries.sort((a,b) => (cheapestFrom(b[1])??-Infinity) - (cheapestFrom(a[1])??-Infinity));
-  const grid = document.getElementById('shopGrid');
-  const countEl = document.getElementById('shopCount'), count2 = document.getElementById('shopCount2');
-  if (countEl) countEl.textContent = entries.length + ' products';
-  if (count2) count2.textContent = entries.length + ' products';
-  grid.innerHTML = entries.length ? entries.map(([slug,p]) => productCard(slug,p)).join('') : '<div class="no-results">No products match these filters.</div>';
-  bindLinks();
-}
 
 function renderWishlist(){
   const view = document.getElementById('view');
@@ -1938,147 +1672,12 @@ function openJobCardWindow(data){
   w.document.close();
 }
 
-function relatedProducts(slug, p){
-  return Object.entries(DATA).filter(([s,o]) => s!==slug && o.cat===p.cat).slice(0,4);
-}
 
-function renderProduct(slug){
-  const p = DATA[slug];
-  const view = document.getElementById('view');
-  if (!p){ view.innerHTML = '<div class="wrap no-data">Product not found.</div>'; return; }
-  const sizes = Object.keys(p.sizes);
-  
-  const related = relatedProducts(slug, p);
-  view.innerHTML = `
-    <main class="wrap product-page">
-      <div class="breadcrumbs"><a href="#home" data-link>Home</a>　›　<a href="#cat-${slugifyCat(p.cat)}" data-link>${esc(p.cat)}</a>　›　${esc(p.name)}</div>
-      <section class="product-detail">
-        <div class="gallery">
-          <div class="main-product-image" id="mainImage">${PH(p.name)}</div>
-          <div class="thumbs"><button class="thumb selected" data-view="0">Collection</button><button class="thumb" data-view="1">Closer look</button></div>
-          <p class="image-note">Illustrative product preview — final print may vary</p>
-
-          <div class="detail-tabs">
-            <a class="tab-active" data-tab="description-${esc(slug)}" href="#">Description</a>
-            <a data-tab="specifications-${esc(slug)}" href="#">Specifications</a>
-            <a data-tab="artwork-${esc(slug)}" href="#">Artwork Guidelines</a>
-            <a data-tab="delivery-${esc(slug)}" href="#">Delivery &amp; Returns</a>
-          </div>
-          <div class="description-panel tab-panel" id="description-${esc(slug)}">
-            <p>Our ${esc(p.name.toLowerCase())} are printed using high-quality paper and advanced printing technology to ensure sharp details and a professional finish. Perfect for businesses, freelancers and events.</p>
-            <ul class="check-grid">
-              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>High-quality printing</li>
-              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Ideal for business branding</li>
-              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Multiple paper types and finishes</li>
-              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Fast production and delivery</li>
-              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Custom sizes available</li>
-              <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></i>Option for professional design support</li>
-            </ul>
-          </div>
-          <div class="specs tab-panel" id="specifications-${esc(slug)}" hidden>
-            <h2>Specifications</h2>
-            <p><b>Category:</b> ${esc(p.cat)}${p.subcat && p.subcat!==p.cat ? ' / '+esc(p.subcat) : ''}</p>
-            <p><b>Available sizes:</b> ${sizes.map(esc).join(', ')}</p>
-            <p><b>Quantity range:</b> ${esc(p.qtyRange||'varies by option')}</p>
-          </div>
-          <div class="specs tab-panel" id="artwork-${esc(slug)}" hidden>
-            <h2>Artwork Guidelines</h2>
-            <p>Upload-ready PDF recommended (AI, PSD, PNG and JPG also accepted). Use CMYK color mode for accurate print colors — RGB files will be auto-converted and may shift slightly. Add a 3mm bleed on any edge-to-edge design, and keep key text/logos at least 3mm inside the trim line. Minimum resolution 300dpi at final print size.</p>
-            <p>No design file? Check "Need Design Support?" on the ordering panel and our team will create one for you for a quoted fee. Request a quote to include design support.</p>
-          </div>
-          <div class="specs tab-panel" id="delivery-${esc(slug)}" hidden>
-            <h2>Delivery &amp; Returns</h2>
-            <p><b>Production time:</b> Dispatched within 3 business days of artwork approval and payment confirmation (longer for bulk/custom orders — the exact timeline is confirmed at checkout).</p>
-            <p><b>Shipping:</b> Pan-India delivery via our logistics partners; tracking details are shared once your order ships.</p>
-            <p><b>Returns &amp; reprints:</b> Since every order is printed to your specification, we don't accept returns for correct, as-approved orders. If there's a genuine print-quality defect or production error on our side, we reprint or refund at no extra charge — contact us within 7 days of delivery with photos of the issue.</p>
-          </div>
-        </div>
-        <div class="product-info">
-          <h1>${esc(p.name)}</h1>
-          <p class="product-intro">${esc(p.name)} — printed to order with live, quantity-based pricing. Choose your size, options and quantity to get an instant price.</p>
-
-          <div class="summary-panel">
-            <div class="option-group"><label>Size <span class="info-dot">i</span></label><select id="sizeSwatches"></select></div>
-            <div class="option-group"><label>Print options <span class="info-dot">i</span></label><div class="swatch-row" id="optPills"></div></div>
-            <div class="option-group"><label>Quantity <span class="info-dot">i</span></label><select id="qtySel"></select></div>
-
-            <div class="option-group">
-              <label for="artworkFile">Artwork file (optional)</label>
-              <input id="artworkFile" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.svg,.pdf,.ai,.eps,.psd,.cdr" style="display:block;">
-              <small id="artworkFileHint">PNG, JPG, PDF, AI, EPS or PSD — up to 25MB. Sign in to upload.</small>
-              <div id="artworkFileProgress" hidden style="margin-top:6px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;"><div style="height:100%;width:0%;background:var(--pink-deep);transition:width .15s;"></div></div>
-              <div id="artworkFileStatus" style="margin-top:4px;font-size:13px;"></div>
-              <details style="margin-top:6px;"><summary style="cursor:pointer;color:var(--muted);font-size:13px;">or paste a link instead</summary>
-                <input id="artworkLink" type="url" placeholder="https://…" style="margin-top:6px;">
-              </details>
-            </div>
-
-            <div class="design-support" hidden>
-              <input type="checkbox" id="designSupport">
-              <div class="avatar"></div>
-              <div class="ds-copy"><b>Need Design Support?</b><small>Get a professional design from our team</small></div>
-              <div class="ds-price">+ ₹299</div>
-            </div>
-
-            <div id="priceArea"></div>
-
-            <div class="purchase-actions">
-              <button class="button" id="addCartBtn" style="width:100%;">Add to Cart　🛒</button>
-            </div>
-            <p class="cart-message" id="cartMsg" role="status"></p>
-            <a class="button button-outline" href="#quote-${esc(slug)}" data-link style="width:100%;border-radius:9px;justify-content:center;margin-top:4px;">Request a Quote</a>
-          </div>
-
-          <div class="product-perks">
-            <div><i>${USP_ICONS.dispatch}</i><span><b>Premium<br>Print Quality</b></span></div>
-            <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg></i><span><b>Custom Sizes<br>&amp; Finishes</b></span></div>
-            <div><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></i><span><b>Fast<br>Turnaround</b></span></div>
-            <div><i>${USP_ICONS.moq}</i><span><b>Bulk Orders &amp;<br>Business Support</b></span></div>
-          </div>
-        </div>
-      </section>
-    </main>
-    ${related.length ? `<section class="section wrap related" id="related-${esc(slug)}">
-      <div class="section-heading left"><h2>You May Also Like</h2></div>
-      <div class="product-grid related-grid">${related.map(([s,o]) => productCard(s,o)).join('')}</div>
-    </section>` : ''}
-    <section class="quote-strip"><div class="wrap">
-      <div><h2>Need a custom quote?</h2><p>Have a large order or special requirement? Tell us what you need.</p></div>
-      <a class="button button-light" href="#quote" data-link>Request a Custom Quote →</a>
-    </div></section>
-  `;
-  document.querySelectorAll('.thumb').forEach(t => {
-    t.addEventListener('click', () => { document.querySelectorAll('.thumb').forEach(x => x.classList.remove('selected')); t.classList.add('selected'); document.querySelector('#mainImage img').style.transform=t.dataset.view==='1'?'scale(1.45)':'none'; });
-  });
-  document.querySelectorAll('.detail-tabs a').forEach(a => {
-    a.addEventListener('click', (e) => {
-      e.preventDefault();
-      document.querySelectorAll('.detail-tabs a').forEach(x => x.classList.remove('tab-active'));
-      a.classList.add('tab-active');
-      const target = a.dataset.tab;
-      document.querySelectorAll('.tab-panel').forEach(panel => { panel.hidden = panel.id !== target; });
-    });
-  });
-  bindLinks();
-  populateSizes(slug);
-}
 
 const USP_ICONS = {
   dispatch: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
   moq: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>'
 };
-
-function currentSize(){ return document.getElementById('sizeSwatches')?.value; }
-function currentOpt(){ return document.querySelector('#optPills .swatch-card.selected')?.dataset.opt; }
-
-function populateSizes(slug){
-  const p = DATA[slug];
-  const sizes = Object.keys(p.sizes);
-  const sel = document.getElementById('sizeSwatches');
-  sel.innerHTML = sizes.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
-  sel.onchange = () => populateOptionsForSize(slug);
-  populateOptionsForSize(slug);
-}
 
 // Raw option keys look like "Select Shape: Arch | Quality: Basic | Select Material: Kraft Paper" —
 // each "|"-separated segment repeats its own field label before the value. Since those field
@@ -2092,30 +1691,6 @@ function cleanOptionLabel(raw){
   }).join(' · ');
 }
 
-function populateOptionsForSize(slug){
-  const p = DATA[slug];
-  const size = currentSize();
-  const optMap = p.sizes[size] || {};
-  const opts = Object.keys(optMap);
-  const optPills = document.getElementById('optPills');
-  optPills.innerHTML = opts.map((o,i) => `<button type="button" class="swatch-card${i===0?' selected':''}" data-opt="${esc(o)}"><span class="swatch-thumb"></span><span><b>${esc(cleanOptionLabel(o))}</b></span></button>`).join('');
-  optPills.querySelectorAll('.swatch-card').forEach(btn => {
-    btn.onclick = () => { optPills.querySelectorAll('.swatch-card').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); populateQty(slug); };
-  });
-  populateQty(slug);
-}
-
-function populateQty(slug){
-  const p = DATA[slug];
-  const size = currentSize();
-  const opt = currentOpt();
-  const rows = (p.sizes[size] || {})[opt] || [];
-  const sorted = rows.slice().sort((a,b) => a[0]-b[0]);
-  const qtySel = document.getElementById('qtySel');
-  qtySel.innerHTML = sorted.map(r => `<option value="${r[0]}">${r[0].toLocaleString()}</option>`).join('');
-  qtySel.onchange = () => updatePrice(slug);
-  updatePrice(slug);
-}
 
 function updatePrice(slug){
   const p = DATA[slug];
@@ -2126,7 +1701,8 @@ function updatePrice(slug){
   const rows = (p.sizes[size] || {})[opt] || [];
   const row = rows.find(r => r[0] === qty);
   const area = document.getElementById('priceArea');
-  if (!row){ area.innerHTML = '<div class="no-data" style="padding:14px 0;">No pricing available for this combination.</div>'; return; }
+  const barTotal = document.getElementById('pfBarTotal');
+  if (!row){ area.innerHTML = '<div class="no-data" style="padding:14px 0;">No pricing available for this combination.</div>'; if (barTotal) barTotal.textContent = '—'; return; }
   const [q, unit] = row;
   const printingSubtotal = +(unit * q).toFixed(2);
   const designFee = document.getElementById('designSupport')?.checked ? 299 : 0;
@@ -2141,6 +1717,7 @@ function updatePrice(slug){
       <div class="summary-row grand"><span>Total</span><b>₹${total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div>
     </div>
   `;
+  if (barTotal) barTotal.textContent = '₹' + total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
   document.getElementById('designSupport').onchange = () => updatePrice(slug);
   const addBtn = document.getElementById('addCartBtn');
   addBtn.onclick = async () => {
@@ -2187,11 +1764,8 @@ function updatePrice(slug){
 function bindLinks(){ /* anchor-based nav works natively via hashchange */ }
 
 document.addEventListener('DOMContentLoaded', () => {});
-document.getElementById('headerSearch').onsubmit=e=>{e.preventDefault();globalQuery=document.getElementById('globalSearch').value.toLowerCase().trim();shopFilterCats.clear();if(location.hash==='#shop')renderShop();else location.hash='shop';};
-const menuButton=document.getElementById('menuToggle');menuButton.setAttribute('aria-controls','navLinks');menuButton.setAttribute('aria-expanded','false');
-new MutationObserver(()=>menuButton.setAttribute('aria-expanded',String(document.getElementById('navLinks').classList.contains('open')))).observe(document.getElementById('navLinks'),{attributes:true,attributeFilter:['class']});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){document.querySelectorAll('.nav-drop.open,.navlinks.open').forEach(n=>n.classList.remove('open'));menuButton.focus();}});
-loadData();
 </script>
+<script src="storefront.js"></script>
+<script>loadData();</script>
 
 </body></html>
