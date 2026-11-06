@@ -790,3 +790,86 @@ function renderProduct(slug){
 
 /* Boot: runs once, after index.html's inline script has defined its globals. */
 initChrome();
+
+/* ===================== Home (Kraftix-style layout) ===================== */
+const IND_NAMES = ['Restaurant, Bakery, Kitchen & Cafe','Packed Food & Beverage','Health & Beauty','Perfume, Attar & Oils','Candle','Giveaway, Events & Branding','Garment & Fashion','Cars, Bikes & Automobiles'];
+const IND_SHORT = {'Restaurant, Bakery, Kitchen & Cafe':'Restaurant, Bakery & Cafe','Giveaway, Events & Branding':'Giveaways, Events & Branding'};
+const BEST_SLUGS = ['standard-business-cards','die-cut-sticker-sheets-op','kraft-business-cards-','velvet-businesscards','address-labels'];
+
+function moq(p){ const m = String(p.qtyRange || '').split('-')[0]; return m ? m : ''; }
+function kxCard(slug, tag){
+  const p = DATA[slug], from = FROM[slug], q = moq(p);
+  return `<a class="kx-card" href="#product-${esc(slug)}" data-link>
+    <div class="kx-card-img">${PH(p.name, p.cat)}${tag ? `<span class="kx-tag">${tag}</span>` : ''}</div>
+    <b>${esc(p.name)}</b>
+    <span class="kx-from">${from != null ? `Starting at <strong>₹${from.toFixed(2)}</strong>/unit` : 'Get a quote'}${q ? ` · MOQ ${esc(q)} pcs` : ''}</span>
+    <span class="kx-btn">View details</span></a>`;
+}
+function bestList(tab){
+  const all = Object.keys(DATA).filter(s => FROM[s] != null);
+  let pool;
+  if (tab === 'packaging') pool = all.filter(s => DATA[s].cat === 'Packaging');
+  else if (tab === 'industries') pool = all.filter(s => TX.idx[s].l2 === IND_L2);
+  else pool = BEST_SLUGS.filter(s => DATA[s]).concat(all.filter(s => DATA[s].cat === 'Sticker/Labels' || DATA[s].cat === 'Cards/Stationery'));
+  return [...new Set(pool)].slice(0, 10);
+}
+
+function renderHome(){
+  const view = document.getElementById('view');
+  const tree = TX.tree;
+  const st = tree['Sticker/Labels'], pk = tree['Packaging'];
+  // industry groups: L1 holding most items per industry
+  const inds = IND_NAMES.map(name => {
+    const items = Object.keys(DATA).filter(s => DATA[s].subcat === name);
+    if (!items.length) return null;
+    const byCat = {}; items.forEach(s => byCat[DATA[s].cat] = (byCat[DATA[s].cat] || 0) + 1);
+    const l1 = tree[Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a])[0]];
+    const n2 = l1.kids.find(k => k.name === IND_L2), n3 = n2 && n2.kids.find(g => g.name === (IND_SHORT[name] || name) || g.name === name);
+    const types = [...new Set(items.map(s => DATA[s].name.replace(/\s*[-–(].*$/, '')))].slice(0, 4);
+    return { name: IND_SHORT[name] || name, items, types, slug: items[0], href: n2 && n3 ? nodeHref(l1, n2, n3) : nodeHref(l1) };
+  }).filter(Boolean);
+  const pkTiles = pk ? pk.kids.filter(k => k.name !== IND_L2).slice(0, 8) : [];
+  const pills = [];
+  [st, pk, tree['Cards/Stationery']].forEach(n1 => n1 && n1.kids.filter(k => k.name !== IND_L2).slice(0, 6).forEach(k => pills.push(`<a href="${nodeHref(n1, k)}" data-link>${esc(k.name)}</a>`)));
+  const ticker = Object.values(DATA).map(p => p.name.replace(/\s*[-–(].*$/, '')).filter((v, i, a) => a.indexOf(v) === i).slice(0, 30);
+  view.innerHTML = `
+    <section class="kx-hero"><div class="wrap kx-hero-in">
+      <div class="kx-hero-copy">
+        <h1>Custom printing for brands &amp; you.</h1>
+        <p>Low MOQ &nbsp;|&nbsp; Free WhatsApp approval &nbsp;|&nbsp; Printed to order, delivered across India</p>
+        <div class="kx-hero-btns"><a class="kx-btn-solid" href="${st ? nodeHref(st) : '#c'}" data-link>Shop Stickers</a><a class="kx-btn-solid alt" href="${pk ? nodeHref(pk) : '#c'}" data-link>Shop Packaging</a></div>
+        <div class="kx-hero-links"><a href="#c" data-link>Shop Now →</a><a href="#quote" data-link>Get Samples →</a></div>
+      </div>
+      <div class="kx-hero-art"><img src="assets/brand.png" alt="Illustrative PrintHaus stickers, cards and packaging" fetchpriority="high"></div>
+    </div></section>
+
+    <section class="section wrap kx-sec">
+      <div class="kx-head"><h2>Best Seller</h2>
+        <div class="kx-tabs" id="kxTabs" role="tablist"><button class="on" data-t="best">Bestseller</button><button data-t="packaging">Packaging</button><button data-t="industries">Industries</button><button data-t="all">All</button></div></div>
+      <div class="kx-row" id="kxBest">${bestList('best').map((s, i) => kxCard(s, i === 0 ? 'Popular' : '')).join('')}</div>
+    </section>
+
+    ${pkTiles.length ? `<section class="section wrap kx-sec"><div class="kx-head"><h2>Packaging</h2><a class="kx-more" href="${nodeHref(pk)}" data-link>View all →</a></div>
+      <div class="kx-tiles">${pkTiles.map(k => { const s = Object.keys(DATA).find(x => TX.idx[x].l1 === 'Packaging' && TX.idx[x].l2 === k.name); return `<a class="kx-tile" href="${nodeHref(pk, k)}" data-link><div class="kx-tile-img">${PH(k.name, 'Packaging')}</div><b>${esc(k.name)}</b><span>View details</span></a>`; }).join('')}</div></section>` : ''}
+
+    <section class="section wrap kx-sec"><div class="kx-head"><h2>Industries</h2></div>
+      <div class="kx-inds">${inds.map(g => `<a class="kx-ind" href="${g.href}" data-link><div class="kx-ind-img">${PH(g.name, g.items.length ? DATA[g.slug].cat : '')}</div><div class="kx-ind-body"><b>${esc(g.name)}</b><span>${g.types.map(esc).join(' · ')}</span><em>More →</em></div></a>`).join('')}</div></section>
+
+    <section class="section wrap kx-sec"><div class="kx-head"><h2>Shop by category</h2></div><div class="kx-pills">${pills.join('')}</div></section>
+
+    <section class="kx-usp"><div class="wrap">
+      <span class="kx-kicker">Your local printer can't compete.</span><h2>Loved by Indian brands.</h2>
+      <div class="kx-usp-grid">
+        <div><b>GST invoices</b><span>On every order</span></div><div><b>All-India delivery</b><span>Tracked to your door</span></div>
+        <div><b>Easy reorders</b><span>Repeat in one tap</span></div><div><b>Approve first</b><span>Proof before we print</span></div></div></div></section>
+
+    <section class="kx-ticker" aria-hidden="true"><div class="kx-ticker-in">${ticker.concat(ticker).map(t => `<span>${esc(t)}</span>`).join('')}</div></section>`;
+  const tabs = document.getElementById('kxTabs');
+  tabs.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    tabs.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    document.getElementById('kxBest').innerHTML = bestList(b.dataset.t).map(s => kxCard(s)).join('');
+    bindLinks();
+  });
+  bindLinks();
+}
