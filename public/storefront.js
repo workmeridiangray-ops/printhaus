@@ -116,17 +116,39 @@ function promoFor(n1){
     <b>${esc(p.name)}</b><span>From ₹${FROM[best].toFixed(2)} / unit</span><em>Shop now →</em></a>`;
 }
 
+const shortName = n => n.replace(/\s*[-–(].*$/, '');
+function productsIn(n1, n2){ return Object.keys(DATA).filter(s => TX.idx[s].l1 === n1.key && TX.idx[s].l2 === n2.name); }
+function industryHref(name){
+  const items = Object.keys(DATA).filter(s => DATA[s].subcat === name);
+  const byCat = {}; items.forEach(s => byCat[DATA[s].cat] = (byCat[DATA[s].cat] || 0) + 1);
+  const top = Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a])[0], l1 = TX.tree[top];
+  if (!l1) return '#c';
+  const n2 = l1.kids.find(k => k.name === IND_L2), n3 = n2 && n2.kids.find(g => g.count && Object.keys(DATA).some(s => TX.idx[s].l1 === top && TX.idx[s].l3 === g.name && DATA[s].subcat === name));
+  return n2 && n3 ? nodeHref(l1, n2, n3) : nodeHref(l1);
+}
+const listItems = (slugs, max) => slugs.slice(0, max).map(s => `<li><a href="#product-${esc(s)}" data-link>${esc(shortName(DATA[s].name))}</a></li>`).join('');
+
 function panelFor(n1){
-  const groups = n1.kids.map(k => {
-    const items = k.kids.length ? k.kids : [];
-    return `<div class="pf-col">
-      <a class="pf-col-h" href="${nodeHref(n1, k)}" data-link>${esc(k.name)}</a>
-      ${items.length ? `<ul>${items.map(g => `<li><a href="${nodeHref(n1, k, g)}" data-link>${esc(g.name)}<span>${g.count}</span></a></li>`).join('')}</ul>` : `<ul><li class="all"><a href="${nodeHref(n1, k)}" data-link>${k.count} product${k.count === 1 ? '' : 's'} →</a></li></ul>`}
-    </div>`;
-  });
+  let groups;
+  if (n1.key === 'Industry'){
+    groups = IND_NAMES.map(name => {
+      const items = Object.keys(DATA).filter(s => DATA[s].subcat === name);
+      if (!items.length) return '';
+      return `<div class="pf-col"><a class="pf-col-h" href="${industryHref(name)}" data-link>${esc(IND_SHORT[name] || name)}</a>
+        <ul>${listItems(items, 5)}<li class="all"><a href="${industryHref(name)}" data-link>View all ${items.length} →</a></li></ul></div>`;
+    });
+  } else {
+    groups = n1.kids.filter(k => k.name !== IND_L2).map(k => {
+      const inner = k.kids.length
+        ? k.kids.map(g => `<li><a href="${nodeHref(n1, k, g)}" data-link>${esc(g.name)}<span>${g.count}</span></a></li>`).join('')
+        : listItems(productsIn(n1, k), 5);
+      return `<div class="pf-col"><a class="pf-col-h" href="${nodeHref(n1, k)}" data-link>${esc(k.name)}</a>
+        <ul>${inner}<li class="all"><a href="${nodeHref(n1, k)}" data-link>View all ${k.count} →</a></li></ul></div>`;
+    });
+  }
   return `<div class="pf-panel"><div class="pf-panel-in">
-    <div class="pf-panel-grid"><div class="pf-cols">${groups.join('')}</div>${promoFor(n1)}</div>
-    <div class="pf-panel-foot"><a href="${nodeHref(n1)}" data-link>Shop all ${esc(n1.label)} (${n1.count}) →</a><a href="#quote" data-link>Need something custom? Ask our print team →</a></div>
+    <div class="pf-panel-grid${n1.key === 'Industry' ? ' solo' : ''}"><div class="pf-cols">${groups.join('')}</div>${n1.key === 'Industry' ? '' : promoFor(n1)}</div>
+    <div class="pf-panel-foot"><a href="${nodeHref(n1)}" data-link>${n1.key === 'Industry' ? 'Browse all industries' : 'Shop all ' + esc(n1.label) + ' (' + n1.count + ')'} →</a><a href="#quote" data-link>Need something custom? Ask our print team →</a></div>
   </div></div>`;
 }
 
