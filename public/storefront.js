@@ -129,6 +129,28 @@ function industryHref(name){
 const listItems = (slugs, max) => slugs.slice(0, max).map(s => `<li><a href="#product-${esc(s)}" data-link>${esc(shortName(DATA[s].name))}</a></li>`).join('');
 
 const CHEV = '<svg class="pf-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>';
+function panelFromRail(rail, allHref, allLabel){
+  const left = rail.map((r, i) => `<a class="pf-rail-item${i === 0 ? ' on' : ''}" href="${r.href}" data-link data-i="${i}">${esc(r.label)}${CHEV}</a>`).join('');
+  const right = rail.map((r, i) => `<div class="pf-pane${i === 0 ? ' on' : ''}" data-i="${i}">
+      <ul class="pf-pane-grid">${r.slugs.slice(0, 24).map(s => `<li><a href="#product-${esc(s)}" data-link>${esc(shortName(DATA[s].name))}</a></li>`).join('')}</ul>
+      <a class="pf-pane-all" href="${r.href}" data-link>View all ${r.slugs.length} in ${esc(r.label)} →</a></div>`).join('');
+  return `<div class="pf-panel pf-two"><div class="pf-two-in"><div class="pf-rail">${left}<a class="pf-rail-all" href="${allHref}" data-link>${allLabel} →</a></div><div class="pf-panes">${right}</div></div></div>`;
+}
+function giftRail(){
+  const mk = tree => tree && tree.kids.find(k => /^Promo items/.test(k.name));
+  const m = TX.tree['Marketing'], p = m && mk(m), rail = [];
+  if (p) p.kids.forEach(g => rail.push({ label: g.name, href: nodeHref(m, p, g), slugs: Object.keys(DATA).filter(s => TX.idx[s].l1 === m.key && TX.idx[s].l2 === p.name && TX.idx[s].l3 === g.name) }));
+  const gv = Object.keys(DATA).filter(s => DATA[s].subcat === 'Giveaway, Events & Branding');
+  if (gv.length) rail.push({ label: 'Giveaways & events', href: industryHref('Giveaway, Events & Branding'), slugs: gv });
+  const boxes = Object.keys(DATA).filter(s => /gift|rigid|handle|thank you/i.test(DATA[s].name) && DATA[s].cat === 'Packaging');
+  if (boxes.length) rail.push({ label: 'Gift packaging', href: '#c?q=gift', slugs: boxes });
+  return rail.filter(r => r.slugs.length);
+}
+function readyRail(){
+  const rail = [];
+  TX.order.forEach(n1 => { const n2 = n1.kids.find(k => /^Ready to buy/i.test(k.name)); if (n2) rail.push({ label: n1.label, href: nodeHref(n1, n2), slugs: productsIn(n1, n2) }); });
+  return rail.filter(r => r.slugs.length);
+}
 function panelFor(n1){
   let rail;  // [{label, href, slugs}]
   if (n1.key === 'Industry'){
@@ -148,6 +170,7 @@ function renderNav(){
   if (!bar) return;
   bar.innerHTML = `<ul class="pf-cats">
     ${TX.order.map(n => `<li class="pf-cat"><a class="pf-cat-link" href="${nodeHref(n)}" data-link aria-haspopup="true" aria-expanded="false">${navIcon(n.key)}<span>${esc(n.label)}</span>${CARET}</a>${panelFor(n)}</li>`).join('')}
+    ${[['Gifting', giftRail(), '#c', 'Gifting', 'Marketing'], ['Ready to Buy', readyRail(), '#c', 'Ready to Buy', 'Packaging']].filter(x => x[1].length).map(x => `<li class="pf-cat"><a class="pf-cat-link" href="${x[1][0].href}" data-link aria-haspopup="true" aria-expanded="false">${navIcon(x[4])}<span>${x[0]}</span>${CARET}</a>${panelFromRail(x[1], x[1][0].href, 'Browse ' + x[0])}</li>`).join('')}
   </ul>`;
   wireNav(bar);
   renderDrawer();
@@ -212,7 +235,7 @@ function renderDrawer(){
                 <a class="pf-d-link all" href="${nodeHref(n1, n2)}" data-link>All ${esc(n2.name)}</a>${l3List(n1, n2)}
               </details>` : `<a class="pf-d-link l2" href="${nodeHref(n1, n2)}" data-link>${esc(n2.name)}<span>${n2.count}</span></a>`).join('')}
           </details>`).join('')}
-        <div class="pf-d-extra"><a href="#quote" data-link>Request a quote</a><a href="#orders" data-link>My orders</a><a href="#account" data-link>Account</a></div>
+        <div class="pf-d-extra">${readyRail().length ? `<a href="${readyRail()[0].href}" data-link>Ready to buy</a>` : ''}${giftRail().length ? `<a href="${giftRail()[0].href}" data-link>Gifting</a>` : ''}<a href="#quote" data-link>Request a quote</a><a href="#orders" data-link>My orders</a><a href="#account" data-link>Account</a></div>
       </div>
     </div>`;
 }

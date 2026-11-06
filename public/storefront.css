@@ -306,3 +306,7 @@ a.pf-col-h:hover{color:var(--pink)}
 .pf-pane-grid a:hover{color:var(--pink)}
 .pf-pane-all{display:inline-block;margin-top:16px;font-weight:800;font-size:13.5px;color:var(--pink)}
 @media(min-width:1200px){.pf-pane-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+/* 11 top-level items: tighter, wrap to a 2nd row like Kraftix rather than overflow */
+.pf-cats{flex-wrap:wrap;justify-content:flex-start}
+.pf-cat-link{padding:10px 11px;font-size:13px}
+.pf-cat-link .pf-ico{display:none}
