@@ -1352,6 +1352,18 @@ function renderAdminLogin(){
   bindLinks();
 }
 
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('#migrateProducts'); if (!b) return;
+  const msg = document.getElementById('migrateMsg'); b.disabled = true; msg.textContent = 'Loading…';
+  try {
+    let key = null; try { key = sessionStorage.getItem('pf_admin_key'); } catch (_) {}
+    const res = await fetch('/api/admin/products/migrate', { method: 'POST', headers: { 'X-Admin-Key': key || '' } });
+    const d = await res.json().catch(() => ({}));
+    msg.textContent = res.ok ? `Done: ${d.migrated} added, ${d.alreadyPresent} already there (of ${d.total}).` : (d.error || 'Failed (' + res.status + ')');
+  } catch (err) { msg.textContent = 'Failed: ' + err.message; }
+  b.disabled = false;
+});
+
 async function renderAdmin(){
   if (!adminUnlocked){ location.hash = 'admin-login'; return; }
   const view = document.getElementById('view');
@@ -1412,6 +1424,11 @@ async function renderAdmin(){
     <div class="admin-heading"><div><span class="eyebrow">STORE MANAGEMENT</span><h1>Admin Dashboard</h1><p class="sub" style="margin:0;">Live data from the Print Haus database.</p></div>
       <button class="button button-outline" id="adminLogout">Exit Admin</button></div>
     <div class="admin-stats">${stats.map(([a,b]) => `<div class="stat-box"><small>${esc(a)}</small><strong>${b}</strong></div>`).join('')}</div>
+    <div class="panel" style="margin-bottom:20px;">
+      <h2 style="font-size:17px;margin:0 0 8px;">Product catalogue</h2>
+      <p class="auth-note" style="margin:0 0 12px;text-align:left;">Copy the built-in catalogue into the database so products can be managed. Safe to run again — products already there are skipped.</p>
+      <button class="button button-small" id="migrateProducts" type="button">Load catalogue into database</button> <span id="migrateMsg" class="auth-note"></span>
+    </div>
     <div class="panel" style="margin-bottom:20px;">
       <div class="table-heading"><h2 style="font-size:17px;margin:0;">Recent Orders</h2><button class="button button-small" id="exportOrders">Export CSV</button></div>
       <div class="table-wrap"><table><thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Total</th><th>Status</th><th>Job</th></tr></thead><tbody>${rows}</tbody></table></div>
