@@ -583,7 +583,7 @@ function router(){
   if (hash === 'orders') return renderOrders('orders');
   if (hash === 'orders-quotes') return renderOrders('quotes');
   if (hash === 'checkout') return renderCheckout();
-  if (hash === 'admin-login') { location.hash = 'admin'; return; }
+  if (hash === 'admin-login') return renderAdminLogin();
   if (hash === 'admin') return renderAdmin();
   if (hash === 'quote' || hash.startsWith('quote-')) return renderQuote(hash.startsWith('quote-') ? hash.slice(6) : null);
   if (hash === 'raise-issue') return renderRaiseIssue();
