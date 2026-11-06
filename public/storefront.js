@@ -93,41 +93,48 @@ function renderFootCats(){
 const isNarrow = () => window.matchMedia('(max-width:900px)').matches;
 const CARET = '<svg class="pf-caret" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
 
-function panelFor(n1){
-  const withKids = n1.kids.filter(k => k.kids.length);
-  const plain = n1.kids.filter(k => !k.kids.length);
-  const cols = withKids.map(k => `
-    <div class="pf-col">
-      <a class="pf-col-h" href="${nodeHref(n1, k)}" data-link>${esc(k.name)}</a>
-      <ul>${k.kids.map(g => `<li><a href="${nodeHref(n1, k, g)}" data-link>${esc(g.name)}<span>${g.count}</span></a></li>`).join('')}
-      <li class="all"><a href="${nodeHref(n1, k)}" data-link>View all ${k.count}</a></li></ul>
-    </div>`);
-  if (plain.length){
-    cols.push(`<div class="pf-col"><span class="pf-col-h static">${withKids.length ? 'More ' + esc(n1.label) : 'Browse'}</span>
-      <ul>${plain.map(k => `<li><a href="${nodeHref(n1, k)}" data-link>${esc(k.name)}<span>${k.count}</span></a></li>`).join('')}</ul></div>`);
-  }
-  return `<div class="pf-panel"><div class="pf-panel-in">
-    <div class="pf-cols">${cols.join('')}</div>
-    <div class="pf-panel-foot"><a href="${nodeHref(n1)}" data-link>Shop all ${esc(n1.label)} (${n1.count}) →</a><a href="#quote" data-link>Need something custom? Ask our print team →</a></div>
-  </div></div>`;
+const NAV_ICONS = {
+  'Sticker/Labels':'<path d="M4 4h10l6 6v10H4z"/><path d="M14 4v6h6"/>',
+  'Packaging':'<path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  'Cards/Stationery':'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h6M7 14h4"/>',
+  'Marketing':'<path d="M3 11v3l12 5V6z"/><path d="M15 9a4 4 0 010 6"/>',
+  'Book Print On Demand':'<path d="M4 4h7a3 3 0 013 3v13a3 3 0 00-3-3H4zM20 4h-7"/><path d="M20 4v13h-6"/>',
+  'Document Printing':'<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7"/>',
+  'A0 Plan Printing':'<rect x="3" y="4" width="18" height="14" rx="1"/><path d="M3 9h18M9 4v14"/>',
+  'B2B Pricing':'<path d="M3 20V9l5-3v14M8 20V4l6 3v13M14 20h7v-8h-7"/>',
+  'Industry':'<path d="M3 21V10l6 4v-4l6 4V6h3v15z"/>'
+};
+const navIcon = k => `<svg class="pf-ico" viewBox="0 0 24 24" aria-hidden="true">${NAV_ICONS[k] || NAV_ICONS['Packaging']}</svg>`;
+
+function promoFor(n1){
+  let best = null;
+  Object.keys(DATA).forEach(s => { if (DATA[s].cat === n1.key && FROM[s] != null && (best === null || FROM[s] < FROM[best])) best = s; });
+  if (!best) return '';
+  const p = DATA[best];
+  return `<a class="pf-promo" href="#product-${esc(best)}" data-link>
+    <div class="pf-promo-img">${PH(p.name, p.cat)}</div>
+    <b>${esc(p.name)}</b><span>From ₹${FROM[best].toFixed(2)} / unit</span><em>Shop now →</em></a>`;
 }
 
-function panelMore(rest){
+function panelFor(n1){
+  const groups = n1.kids.map(k => {
+    const items = k.kids.length ? k.kids : [];
+    return `<div class="pf-col">
+      <a class="pf-col-h" href="${nodeHref(n1, k)}" data-link>${esc(k.name)}</a>
+      ${items.length ? `<ul>${items.map(g => `<li><a href="${nodeHref(n1, k, g)}" data-link>${esc(g.name)}<span>${g.count}</span></a></li>`).join('')}</ul>` : `<ul><li class="all"><a href="${nodeHref(n1, k)}" data-link>${k.count} product${k.count === 1 ? '' : 's'} →</a></li></ul>`}
+    </div>`;
+  });
   return `<div class="pf-panel"><div class="pf-panel-in">
-    <div class="pf-cols">${rest.map(n1 => `<div class="pf-col"><a class="pf-col-h" href="${nodeHref(n1)}" data-link>${esc(n1.label)}</a>
-      <ul>${n1.kids.map(k => `<li><a href="${nodeHref(n1, k)}" data-link>${esc(k.name)}<span>${k.count}</span></a></li>`).join('')}</ul></div>`).join('')}</div>
-    <div class="pf-panel-foot"><a href="#c" data-link>Shop all products →</a><a href="#quote" data-link>Need something custom? Ask our print team →</a></div>
+    <div class="pf-panel-grid"><div class="pf-cols">${groups.join('')}</div>${promoFor(n1)}</div>
+    <div class="pf-panel-foot"><a href="${nodeHref(n1)}" data-link>Shop all ${esc(n1.label)} (${n1.count}) →</a><a href="#quote" data-link>Need something custom? Ask our print team →</a></div>
   </div></div>`;
 }
 
 function renderNav(){
   const bar = document.getElementById('pfCatbar');
   if (!bar) return;
-  const main = TX.order.slice(0, 4), rest = TX.order.slice(4);
   bar.innerHTML = `<ul class="pf-cats">
-    <li class="pf-cat plain"><a class="pf-cat-link" href="#c" data-link>All products</a></li>
-    ${main.map(n => `<li class="pf-cat"><a class="pf-cat-link" href="${nodeHref(n)}" data-link aria-haspopup="true" aria-expanded="false">${esc(n.label)}${CARET}</a>${panelFor(n)}</li>`).join('')}
-    ${rest.length ? `<li class="pf-cat"><a class="pf-cat-link" href="#c" data-link aria-haspopup="true" aria-expanded="false">More${CARET}</a>${panelMore(rest)}</li>` : ''}
+    ${TX.order.map(n => `<li class="pf-cat"><a class="pf-cat-link" href="${nodeHref(n)}" data-link aria-haspopup="true" aria-expanded="false">${navIcon(n.key)}<span>${esc(n.label)}</span>${CARET}</a>${panelFor(n)}</li>`).join('')}
   </ul>`;
   wireNav(bar);
   renderDrawer();

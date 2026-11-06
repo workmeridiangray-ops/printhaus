@@ -223,3 +223,17 @@ a.pf-col-h:hover{color:var(--pink)}
   .pf-pill{padding:8px 12px;font-size:13.5px}
 }
 @media(prefers-reduced-motion:reduce){.pf-drawer-sheet,.pf-rail,.pf-card,.pf-scrim{transition:none!important}}
+
+/* Kraftix-style bar: every category visible with icon; panel = subcategory columns + promo */
+.pf-cats{justify-content:space-between;gap:0}
+.pf-cat-link{padding:11px 10px;font-size:13px;gap:6px}
+.pf-cat:first-child .pf-cat-link{padding-left:0}
+.pf-ico{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.pf-cat-link .pf-caret{width:10px;height:10px}
+@media(max-width:1180px){.pf-cat-link .pf-ico{display:none}}
+.pf-panel-grid{display:grid;grid-template-columns:1fr 220px;gap:28px}
+.pf-promo{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--cream);align-self:start}
+.pf-promo-img{aspect-ratio:4/3;border-radius:8px;overflow:hidden;background:#fff}
+.pf-promo-img>*{width:100%;height:100%;object-fit:cover}
+.pf-promo b{font-size:13.5px;color:var(--navy)}.pf-promo span{font-size:12.5px;color:var(--muted)}
+.pf-promo em{font-style:normal;font-weight:800;font-size:13px;color:var(--pink)}
