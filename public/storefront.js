@@ -128,28 +128,19 @@ function industryHref(name){
 }
 const listItems = (slugs, max) => slugs.slice(0, max).map(s => `<li><a href="#product-${esc(s)}" data-link>${esc(shortName(DATA[s].name))}</a></li>`).join('');
 
+const CHEV = '<svg class="pf-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>';
 function panelFor(n1){
-  let groups;
+  let rail;  // [{label, href, slugs}]
   if (n1.key === 'Industry'){
-    groups = IND_NAMES.map(name => {
-      const items = Object.keys(DATA).filter(s => DATA[s].subcat === name);
-      if (!items.length) return '';
-      return `<div class="pf-col"><a class="pf-col-h" href="${industryHref(name)}" data-link>${esc(IND_SHORT[name] || name)}</a>
-        <ul>${listItems(items, 5)}<li class="all"><a href="${industryHref(name)}" data-link>View all ${items.length} →</a></li></ul></div>`;
-    });
+    rail = IND_NAMES.map(name => ({ label: IND_SHORT[name] || name, href: industryHref(name), slugs: Object.keys(DATA).filter(s => DATA[s].subcat === name) })).filter(r => r.slugs.length);
   } else {
-    groups = n1.kids.filter(k => k.name !== IND_L2).map(k => {
-      const inner = k.kids.length
-        ? k.kids.map(g => `<li><a href="${nodeHref(n1, k, g)}" data-link>${esc(g.name)}<span>${g.count}</span></a></li>`).join('')
-        : listItems(productsIn(n1, k), 5);
-      return `<div class="pf-col"><a class="pf-col-h" href="${nodeHref(n1, k)}" data-link>${esc(k.name)}</a>
-        <ul>${inner}<li class="all"><a href="${nodeHref(n1, k)}" data-link>View all ${k.count} →</a></li></ul></div>`;
-    });
+    rail = n1.kids.filter(k => k.name !== IND_L2).map(k => ({ label: k.name, href: nodeHref(n1, k), slugs: productsIn(n1, k) }));
   }
-  return `<div class="pf-panel"><div class="pf-panel-in">
-    <div class="pf-panel-grid${n1.key === 'Industry' ? ' solo' : ''}"><div class="pf-cols">${groups.join('')}</div>${n1.key === 'Industry' ? '' : promoFor(n1)}</div>
-    <div class="pf-panel-foot"><a href="${nodeHref(n1)}" data-link>${n1.key === 'Industry' ? 'Browse all industries' : 'Shop all ' + esc(n1.label) + ' (' + n1.count + ')'} →</a><a href="#quote" data-link>Need something custom? Ask our print team →</a></div>
-  </div></div>`;
+  const left = rail.map((r, i) => `<a class="pf-rail-item${i === 0 ? ' on' : ''}" href="${r.href}" data-link data-i="${i}">${esc(r.label)}${CHEV}</a>`).join('');
+  const right = rail.map((r, i) => `<div class="pf-pane${i === 0 ? ' on' : ''}" data-i="${i}">
+      <ul class="pf-pane-grid">${r.slugs.slice(0, 24).map(s => `<li><a href="#product-${esc(s)}" data-link>${esc(shortName(DATA[s].name))}</a></li>`).join('')}</ul>
+      <a class="pf-pane-all" href="${r.href}" data-link>View all ${r.slugs.length} in ${esc(r.label)} →</a></div>`).join('');
+  return `<div class="pf-panel pf-two"><div class="pf-two-in"><div class="pf-rail">${left}<a class="pf-rail-all" href="${nodeHref(n1)}" data-link>${n1.key === 'Industry' ? 'Browse all industries' : 'Shop all ' + esc(n1.label)} →</a></div><div class="pf-panes">${right}</div></div></div>`;
 }
 
 function renderNav(){
@@ -184,6 +175,12 @@ function wireNav(bar){
     li.addEventListener('focusin', () => openNavPanel(li));
     li.addEventListener('focusout', (e) => { if (!li.contains(e.relatedTarget)) { li.classList.remove('open'); const a = li.querySelector('.pf-cat-link'); if (a) a.setAttribute('aria-expanded', 'false'); } });
   });
+  const pick = (item) => {
+    const li = item.closest('.pf-cat'), i = item.dataset.i;
+    li.querySelectorAll('.pf-rail-item').forEach(x => x.classList.toggle('on', x === item));
+    li.querySelectorAll('.pf-pane').forEach(x => x.classList.toggle('on', x.dataset.i === i));
+  };
+  bar.querySelectorAll('.pf-rail-item').forEach(it => { it.addEventListener('mouseenter', () => pick(it)); it.addEventListener('focus', () => pick(it)); });
   bar.addEventListener('click', (e) => {
     if (e.target.closest('a[data-link]')) closeNavPanels();
   });

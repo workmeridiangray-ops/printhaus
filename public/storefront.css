@@ -291,3 +291,18 @@ a.pf-col-h:hover{color:var(--pink)}
 .pf-col li:not(.all) a{color:#3d4b41}
 .pf-panel{max-height:calc(100vh - 170px)}
 .pf-panel-grid.solo{grid-template-columns:1fr}
+/* two-pane mega menu (rail + product grid), as on Kraftix */
+.pf-panel.pf-two{padding:0;overflow:hidden}
+.pf-two-in{display:grid;grid-template-columns:270px 1fr;min-height:340px}
+.pf-rail{background:#f6f7f5;border-right:1px solid var(--line);display:flex;flex-direction:column;padding:6px 0}
+.pf-rail-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:13px 20px;font-size:15px;font-weight:600;color:var(--navy);border-bottom:1px solid var(--line)}
+.pf-rail-item.on,.pf-rail-item:hover{background:#fff;color:var(--pink)}
+.pf-chev{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;flex:none}
+.pf-rail-all{margin-top:auto;padding:14px 20px;font-weight:800;font-size:13px;color:var(--pink)}
+.pf-panes{padding:20px 28px}
+.pf-pane{display:none}.pf-pane.on{display:block}
+.pf-pane-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 26px}
+.pf-pane-grid a{display:block;padding:9px 0;font-size:14px;color:#2d3a31;border-bottom:1px solid #eef0ec}
+.pf-pane-grid a:hover{color:var(--pink)}
+.pf-pane-all{display:inline-block;margin-top:16px;font-weight:800;font-size:13.5px;color:var(--pink)}
+@media(min-width:1200px){.pf-pane-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
