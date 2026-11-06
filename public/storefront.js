@@ -583,7 +583,8 @@ function pfCard(slug){
   return `<a class="pf-card" href="#product-${esc(slug)}" data-link>
     <div class="pf-card-img">${PH(p.name, p.cat)}${wishBtn(slug)}</div>
     <div class="pf-card-body"><span class="pf-card-meta">${esc(meta)}</span><b>${esc(p.name)}</b>
-    <span class="pf-card-price">${from !== null && from !== undefined ? `From <strong>₹${from.toFixed(2)}</strong> / unit` : 'Get a quote'}</span></div></a>`;
+    <span class="pf-card-price">${from !== null && from !== undefined ? `Starting at <strong>₹${from.toFixed(2)}</strong> / unit` : 'Get a quote'}${moq(p) ? ` · MOQ ${esc(moq(p))} pcs` : ''}</span>
+    <span class="kx-btn">View details</span></div></a>`;
 }
 
 /* ===================== Product page ===================== */

@@ -895,7 +895,7 @@ function renderQuote(productSlug){
   view.innerHTML = `<div class="wrap">
     <div class="breadcrumbs"><a href="#home" data-link>Home</a>　›　Request a Quote</div>
     <div class="section-heading left" style="padding-top:4px;"><div><span class="eyebrow">LET'S TALK</span><h1>Request a Quote</h1><p>Pick your product and specs below — pricing and sizes are pulled straight from our catalog, so what you select is exactly what we'll quote.</p></div></div>
-    <div class="checkout-layout" style="grid-template-columns:1fr;max-width:620px;">
+    <div class="checkout-layout" style="grid-template-columns:minmax(0,1fr) 340px;max-width:1040px;align-items:start;">
       <form id="quoteForm" class="panel">
         <label>Which product? <span style="font-weight:400;color:var(--muted);">(search to find it)</span>
           <input id="qProduct" list="qProductList" required placeholder="Start typing a product name…" value="${esc(initialName)}" autocomplete="off">
@@ -913,6 +913,10 @@ function renderQuote(productSlug){
         <button class="button" style="width:100%;margin-top:18px;border-radius:8px;justify-content:center;" type="submit">Submit Quote Request</button>
         <p class="auth-note">We'll reply by email or WhatsApp, usually within one business day.</p>
       </form>
+      <aside class="panel q-aside"><h3>What happens next</h3>
+        <ol><li><b>We review</b> your specs and artwork needs.</li><li><b>Quote in about a day</b> by email or WhatsApp.</li><li><b>Approve the proof</b> before anything is printed.</li><li><b>We print &amp; deliver</b> across India, tracked.</li></ol>
+        <h3>Prefer to talk?</h3><p>WhatsApp us on <a href="https://wa.me/919876543210" target="_blank" rel="noopener">+91 98765 43210</a>.</p>
+        <p class="q-note">Low minimums · GST invoice on every order · Free proof approval</p></aside>
     </div>
   </div>`;
 

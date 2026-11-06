@@ -310,3 +310,16 @@ a.pf-col-h:hover{color:var(--pink)}
 .pf-cats{flex-wrap:wrap;justify-content:flex-start}
 .pf-cat-link{padding:10px 11px;font-size:13px}
 .pf-cat-link .pf-ico{display:none}
+/* listing cards: Kraftix-style (square image, price + MOQ, View details) */
+.pf-grid{grid-template-columns:repeat(auto-fill,minmax(205px,1fr))}
+.pf-card-img{aspect-ratio:1/1}
+.pf-card-body{flex:1}
+.pf-card-body .kx-btn{margin-top:10px}
+.pf-card:hover .kx-btn{background:var(--navy);color:#fff}
+footer .logo .dot{color:#8fd1ab}
+footer .logo small{color:#ffffff99}
+.q-aside h3{font-family:Fraunces,serif;font-size:18px;margin:0 0 10px;color:var(--navy)}
+.q-aside ol{margin:0 0 18px;padding-left:20px;display:grid;gap:8px;font-size:14px}
+.q-aside p{font-size:14px;margin:0 0 10px}.q-aside a{color:var(--pink);font-weight:700}
+.q-note{color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:12px}
+@media(max-width:900px){.checkout-layout{grid-template-columns:1fr!important}}
