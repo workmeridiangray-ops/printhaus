@@ -323,3 +323,5 @@ footer .logo small{color:#ffffff99}
 .q-aside p{font-size:14px;margin:0 0 10px}.q-aside a{color:var(--pink);font-weight:700}
 .q-note{color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:12px}
 @media(max-width:900px){.checkout-layout{grid-template-columns:1fr!important}}
+.content-page{margin-left:0!important}
+.footer-brand .logo{margin-bottom:14px}
